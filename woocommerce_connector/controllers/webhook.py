@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import time
+from typing import Dict, List
 
 from odoo import http
 from odoo.http import request
@@ -12,7 +13,7 @@ from odoo.http import request
 _logger = logging.getLogger(__name__)
 _WEBHOOK_WINDOW_SECONDS = 60
 _WEBHOOK_MAX_PER_WINDOW = 120
-_webhook_hits: dict[str, list[float]] = {}
+_webhook_hits: Dict[str, List[float]] = {}
 _webhook_lock = threading.Lock()
 
 

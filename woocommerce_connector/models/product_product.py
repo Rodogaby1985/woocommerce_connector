@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict
 
 from odoo import fields, models
 
@@ -12,7 +12,7 @@ class ProductProduct(models.Model):
     wc_sale_date_to = fields.Datetime(string='Oferta variante hasta')
     wc_variant_sync_date = fields.Datetime(string='Última sync variante')
 
-    def _prepare_wc_variation_data(self) -> dict[str, Any]:
+    def _prepare_wc_variation_data(self) -> Dict[str, Any]:
         """Prepara payload de variación para WooCommerce."""
         self.ensure_one()
         attrs = []
@@ -29,7 +29,7 @@ class ProductProduct(models.Model):
             'attributes': attrs,
         }
 
-    def _process_wc_variation_data(self, wc_variation: dict[str, Any]):
+    def _process_wc_variation_data(self, wc_variation: Dict[str, Any]):
         """Procesa variación de WooCommerce."""
         vals = {
             'default_code': wc_variation.get('sku') or False,
@@ -68,7 +68,7 @@ class ProductProduct(models.Model):
             response = backend._wc_get(f'products/{variant.product_tmpl_id.wc_id}/variations/{variant.wc_variation_id}')
             variant._process_wc_variation_data(response)
 
-    def write(self, vals: dict[str, Any]):
+    def write(self, vals: Dict[str, Any]):
         watched_fields = ['lst_price', 'wc_sale_price', 'qty_available', 'default_code']
         should_enqueue = self._wc_field_changed(vals, watched_fields) and not self._is_wc_sync_disabled()
         result = super().write(vals)

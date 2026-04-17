@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Any, Iterable
+from typing import Any, Dict, Iterable, Optional
 
 from odoo import api, fields, models
 
@@ -14,7 +14,7 @@ class WcSyncMixin(models.AbstractModel):
         """Obtiene el backend activo de WooCommerce."""
         return self.env['wc.backend'].search([], limit=1)
 
-    def _enqueue_wc_job(self, action: str, priority: int = 5, data: dict[str, Any] | None = None):
+    def _enqueue_wc_job(self, action: str, priority: int = 5, data: Optional[Dict[str, Any]] = None):
         """Encola un trabajo para procesamiento asíncrono."""
         queue = self.env['wc.queue.job']
         payload = json.dumps(data or {})
@@ -34,7 +34,7 @@ class WcSyncMixin(models.AbstractModel):
         return bool(self.env.context.get('wc_no_sync'))
 
     @api.model
-    def _wc_field_changed(self, vals: dict[str, Any], watched_fields: Iterable[str]) -> bool:
+    def _wc_field_changed(self, vals: Dict[str, Any], watched_fields: Iterable[str]) -> bool:
         """Detecta si cambió alguno de los campos monitoreados."""
         return any(field in vals for field in watched_fields)
 

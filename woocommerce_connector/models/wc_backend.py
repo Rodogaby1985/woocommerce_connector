@@ -1,7 +1,7 @@
 import logging
 import threading
 import time
-from typing import Any
+from typing import Any, Dict, List, Optional, Union
 
 import requests
 
@@ -9,7 +9,7 @@ from odoo import fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
-_last_call_times: dict[int, float] = {}
+_last_call_times: Dict[int, float] = {}
 _rate_lock = threading.Lock()
 
 
@@ -72,7 +72,7 @@ class WcBackend(models.Model):
                 backend.write({'state': 'error', 'last_error': str(exc)})
                 raise UserError(f'No se pudo conectar a WooCommerce: {exc}')
 
-    def _get_wc_api(self, endpoint: str, method: str = 'GET', data: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> dict[str, Any] | list[dict[str, Any]]:
+    def _get_wc_api(self, endpoint: str, method: str = 'GET', data: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """Realiza llamada a la API v3 de WooCommerce respetando el rate limit."""
         self.ensure_one()
         if not self.wc_url:
@@ -102,13 +102,13 @@ class WcBackend(models.Model):
             return {}
         return response.json()
 
-    def _wc_get(self, endpoint: str, params: dict[str, Any] | None = None):
+    def _wc_get(self, endpoint: str, params: Optional[Dict[str, Any]] = None):
         return self._get_wc_api(endpoint=endpoint, method='GET', params=params)
 
-    def _wc_post(self, endpoint: str, data: dict[str, Any]):
+    def _wc_post(self, endpoint: str, data: Dict[str, Any]):
         return self._get_wc_api(endpoint=endpoint, method='POST', data=data)
 
-    def _wc_put(self, endpoint: str, data: dict[str, Any]):
+    def _wc_put(self, endpoint: str, data: Dict[str, Any]):
         return self._get_wc_api(endpoint=endpoint, method='PUT', data=data)
 
     def action_sync_all(self):

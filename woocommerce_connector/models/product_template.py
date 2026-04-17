@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Dict
 
 from odoo import fields, models
 
@@ -24,7 +24,7 @@ class ProductTemplate(models.Model):
         for product in self:
             product.wc_synced = bool(product.wc_id)
 
-    def _prepare_wc_data(self) -> dict[str, Any]:
+    def _prepare_wc_data(self) -> Dict[str, Any]:
         """Prepara payload de producto para WooCommerce."""
         self.ensure_one()
         categories = []
@@ -51,7 +51,7 @@ class ProductTemplate(models.Model):
             data['attributes'] = attributes
         return data
 
-    def _process_wc_data(self, wc_data: dict[str, Any]):
+    def _process_wc_data(self, wc_data: Dict[str, Any]):
         """Procesa datos de WooCommerce y actualiza producto en Odoo."""
         vals = {
             'name': wc_data.get('name'),
@@ -71,7 +71,7 @@ class ProductTemplate(models.Model):
         for variant in self.product_variant_ids:
             variant.action_sync_to_wc()
 
-    def _sync_variable_product_from_wc(self, wc_product: dict[str, Any]):
+    def _sync_variable_product_from_wc(self, wc_product: Dict[str, Any]):
         """Importa producto variable y sus variaciones."""
         self.ensure_one()
         self._process_wc_data(wc_product)
@@ -114,7 +114,7 @@ class ProductTemplate(models.Model):
             else:
                 product._process_wc_data(wc_product)
 
-    def write(self, vals: dict[str, Any]):
+    def write(self, vals: Dict[str, Any]):
         watched_fields = ['name', 'default_code', 'list_price', 'wc_sale_price', 'wc_sale_date_from', 'wc_sale_date_to', 'categ_id']
         should_enqueue = self._wc_field_changed(vals, watched_fields) and not self._is_wc_sync_disabled()
         result = super().write(vals)
