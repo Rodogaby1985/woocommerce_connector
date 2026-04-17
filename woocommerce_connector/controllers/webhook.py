@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import logging
+import threading
 import time
 
 from odoo import http
@@ -12,6 +13,7 @@ _logger = logging.getLogger(__name__)
 _WEBHOOK_WINDOW_SECONDS = 60
 _WEBHOOK_MAX_PER_WINDOW = 120
 _webhook_hits: dict[str, list[float]] = {}
+_webhook_lock = threading.Lock()
 
 
 class WooCommerceWebhook(http.Controller):
@@ -27,12 +29,13 @@ class WooCommerceWebhook(http.Controller):
 
         client_ip = request.httprequest.remote_addr or 'unknown'
         now = time.time()
-        hits = [ts for ts in _webhook_hits.get(client_ip, []) if now - ts <= _WEBHOOK_WINDOW_SECONDS]
-        if len(hits) >= _WEBHOOK_MAX_PER_WINDOW:
-            _logger.warning('Webhook WooCommerce limitado por rate limit para IP %s', client_ip)
-            return {'status': 'error', 'message': 'Rate limit excedido'}
-        hits.append(now)
-        _webhook_hits[client_ip] = hits
+        with _webhook_lock:
+            hits = [ts for ts in _webhook_hits.get(client_ip, []) if now - ts <= _WEBHOOK_WINDOW_SECONDS]
+            if len(hits) >= _WEBHOOK_MAX_PER_WINDOW:
+                _logger.warning('Webhook WooCommerce limitado por rate limit para IP %s', client_ip)
+                return {'status': 'error', 'message': 'Rate limit excedido'}
+            hits.append(now)
+            _webhook_hits[client_ip] = hits
 
         raw_body = request.httprequest.get_data() or b''
         signature = request.httprequest.headers.get('X-WC-Webhook-Signature')
