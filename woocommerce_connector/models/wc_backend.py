@@ -9,7 +9,7 @@ from odoo import fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
-_last_call_time = 0.0
+_last_call_times: dict[int, float] = {}
 _rate_lock = threading.Lock()
 
 
@@ -78,13 +78,14 @@ class WcBackend(models.Model):
         if not self.wc_url:
             raise UserError('Debe configurar la URL de WooCommerce.')
 
-        global _last_call_time
         with _rate_lock:
             min_interval = 60.0 / float(self.rate_limit or 60)
-            elapsed = time.time() - _last_call_time
+            backend_key = self.id or 0
+            last_call = _last_call_times.get(backend_key, 0.0)
+            elapsed = time.time() - last_call
             if elapsed < min_interval:
                 time.sleep(min_interval - elapsed)
-            _last_call_time = time.time()
+            _last_call_times[backend_key] = time.time()
 
         url = f"{self.wc_url.rstrip('/')}/wp-json/wc/v3/{endpoint.lstrip('/')}"
         response = requests.request(

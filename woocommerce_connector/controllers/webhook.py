@@ -3,11 +3,15 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 
 from odoo import http
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
+_WEBHOOK_WINDOW_SECONDS = 60
+_WEBHOOK_MAX_PER_WINDOW = 120
+_webhook_hits: dict[str, list[float]] = {}
 
 
 class WooCommerceWebhook(http.Controller):
@@ -17,6 +21,18 @@ class WooCommerceWebhook(http.Controller):
         backend = request.env['wc.backend'].sudo().search([], limit=1)
         if not backend:
             return {'status': 'ignored', 'message': 'Backend no configurado'}
+        if not backend.webhook_secret:
+            _logger.warning('Webhook WooCommerce rechazado: secreto no configurado')
+            return {'status': 'error', 'message': 'Webhook secret no configurado'}
+
+        client_ip = request.httprequest.remote_addr or 'unknown'
+        now = time.time()
+        hits = [ts for ts in _webhook_hits.get(client_ip, []) if now - ts <= _WEBHOOK_WINDOW_SECONDS]
+        if len(hits) >= _WEBHOOK_MAX_PER_WINDOW:
+            _logger.warning('Webhook WooCommerce limitado por rate limit para IP %s', client_ip)
+            return {'status': 'error', 'message': 'Rate limit excedido'}
+        hits.append(now)
+        _webhook_hits[client_ip] = hits
 
         raw_body = request.httprequest.get_data() or b''
         signature = request.httprequest.headers.get('X-WC-Webhook-Signature')

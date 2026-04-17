@@ -48,17 +48,18 @@ class WcInitialSync(models.TransientModel):
                     products = backend._wc_get('products', params={'per_page': 100, 'page': page})
                     if not products:
                         break
-                    for wc_product in products:
-                        template = self.env['product.template'].search([('wc_id', '=', wc_product.get('id'))], limit=1)
-                        if not template:
-                            template = self.env['product.template'].create({'name': wc_product.get('name') or 'Producto WooCommerce'})
-                        template._process_wc_data(wc_product)
-                        processed += 1
-                        if wc_product.get('type') == 'variable':
-                            template._sync_variable_product_from_wc(wc_product)
-                            total_variants += len(template.product_variant_ids)
-                        if processed % max(self.batch_size, 1) == 0:
-                            self.env.cr.commit()
+                    with self.env.cr.savepoint():
+                        for wc_product in products:
+                            template = self.env['product.template'].search([('wc_id', '=', wc_product.get('id'))], limit=1)
+                            if not template:
+                                template = self.env['product.template'].create({'name': wc_product.get('name') or 'Producto WooCommerce'})
+                            template._process_wc_data(wc_product)
+                            processed += 1
+                            if wc_product.get('type') == 'variable':
+                                template._sync_variable_product_from_wc(wc_product)
+                                total_variants += len(template.product_variant_ids)
+                            if processed % max(self.batch_size, 1) == 0:
+                                self.env.cr.commit()
                     page += 1
 
                 self.write({
@@ -74,8 +75,9 @@ class WcInitialSync(models.TransientModel):
                     customers = backend._wc_get('customers', params={'per_page': 100, 'page': page})
                     if not customers:
                         break
-                    for customer in customers:
-                        self.env['res.partner']._get_or_create_from_wc(customer)
+                    with self.env.cr.savepoint():
+                        for customer in customers:
+                            self.env['res.partner']._get_or_create_from_wc(customer)
                     self.env.cr.commit()
                     page += 1
 
@@ -85,8 +87,9 @@ class WcInitialSync(models.TransientModel):
                     orders = backend._wc_get('orders', params={'per_page': 100, 'page': page})
                     if not orders:
                         break
-                    for order in orders:
-                        self.env['sale.order']._process_wc_order(order)
+                    with self.env.cr.savepoint():
+                        for order in orders:
+                            self.env['sale.order']._process_wc_order(order)
                     self.env.cr.commit()
                     page += 1
 

@@ -29,8 +29,8 @@ class WcSyncMixin(models.AbstractModel):
             })
 
     @api.model
-    def _is_wc_sync_context(self) -> bool:
-        """Retorna True si estamos en un contexto de sincronización."""
+    def _is_wc_sync_disabled(self) -> bool:
+        """Retorna True si el contexto actual desactiva el encolado de sync."""
         return bool(self.env.context.get('wc_no_sync'))
 
     @api.model

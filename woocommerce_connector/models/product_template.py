@@ -116,7 +116,7 @@ class ProductTemplate(models.Model):
 
     def write(self, vals: dict[str, Any]):
         watched_fields = ['name', 'default_code', 'list_price', 'wc_sale_price', 'wc_sale_date_from', 'wc_sale_date_to', 'categ_id']
-        should_enqueue = self._wc_field_changed(vals, watched_fields) and not self._is_wc_sync_context()
+        should_enqueue = self._wc_field_changed(vals, watched_fields) and not self._is_wc_sync_disabled()
         result = super().write(vals)
         if should_enqueue and not self._wc_recent_sync('wc_sync_date'):
             for product in self.filtered('wc_id'):

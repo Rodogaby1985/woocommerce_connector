@@ -70,7 +70,7 @@ class ProductProduct(models.Model):
 
     def write(self, vals: dict[str, Any]):
         watched_fields = ['lst_price', 'wc_sale_price', 'qty_available', 'default_code']
-        should_enqueue = self._wc_field_changed(vals, watched_fields) and not self._is_wc_sync_context()
+        should_enqueue = self._wc_field_changed(vals, watched_fields) and not self._is_wc_sync_disabled()
         result = super().write(vals)
         if should_enqueue and not self._wc_recent_sync('wc_variant_sync_date'):
             for variant in self.filtered('wc_variation_id'):
