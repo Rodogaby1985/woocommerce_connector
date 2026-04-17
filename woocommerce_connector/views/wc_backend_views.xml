@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_wc_backend_form" model="ir.ui.view">
+        <field name="name">wc.backend.form</field>
+        <field name="model">wc.backend</field>
+        <field name="arch" type="xml">
+            <form string="WooCommerce Backend">
+                <header>
+                    <button name="action_test_connection" type="object" string="Probar Conexión" class="btn-primary"/>
+                    <button name="action_sync_all" type="object" string="Sync Inicial"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,connected,error"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="last_sync_date" readonly="1"/>
+                        <field name="last_error" readonly="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Conexión">
+                            <group>
+                                <field name="wc_url"/>
+                                <field name="wc_consumer_key" password="True"/>
+                                <field name="wc_consumer_secret" password="True"/>
+                                <field name="webhook_secret" password="True"/>
+                            </group>
+                        </page>
+                        <page string="Opciones de Sync">
+                            <group>
+                                <field name="price_strategy"/>
+                                <field name="sale_pricelist_id" attrs="{'invisible': [('price_strategy', '!=', 'pricelist')]}"/>
+                                <field name="sync_stock"/>
+                                <field name="sync_prices"/>
+                                <field name="sync_orders"/>
+                                <field name="sync_customers"/>
+                                <field name="sync_images"/>
+                                <field name="batch_size"/>
+                                <field name="rate_limit"/>
+                            </group>
+                        </page>
+                        <page string="Estado">
+                            <group>
+                                <field name="product_synced_count" readonly="1"/>
+                                <field name="product_total_count" readonly="1"/>
+                                <field name="variant_synced_count" readonly="1"/>
+                                <field name="variant_total_count" readonly="1"/>
+                                <field name="pending_job_count" readonly="1"/>
+                                <field name="error_job_count" readonly="1"/>
+                                <field name="month_order_count" readonly="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_wc_backend_tree" model="ir.ui.view">
+        <field name="name">wc.backend.tree</field>
+        <field name="model">wc.backend</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="wc_url"/>
+                <field name="state"/>
+                <field name="last_sync_date"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="action_wc_backend_form" model="ir.actions.act_window">
+        <field name="name">Configuración WooCommerce</field>
+        <field name="res_model">wc.backend</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+</odoo>

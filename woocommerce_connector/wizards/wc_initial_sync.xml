@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_wc_initial_sync_form" model="ir.ui.view">
+        <field name="name">wc.initial.sync.form</field>
+        <field name="model">wc.initial.sync</field>
+        <field name="arch" type="xml">
+            <form string="Sync Inicial WooCommerce">
+                <group>
+                    <field name="state" readonly="1"/>
+                    <field name="sync_products"/>
+                    <field name="sync_customers"/>
+                    <field name="sync_orders"/>
+                    <field name="batch_size"/>
+                    <field name="progress" readonly="1"/>
+                </group>
+                <group>
+                    <field name="total_products" readonly="1"/>
+                    <field name="synced_products" readonly="1"/>
+                    <field name="total_variants" readonly="1"/>
+                    <field name="synced_variants" readonly="1"/>
+                    <field name="log" readonly="1" nolabel="1"/>
+                </group>
+                <footer>
+                    <button name="action_start_sync" type="object" string="Iniciar" class="btn-primary" attrs="{'invisible': [('state', '!=', 'config')]}"/>
+                    <button string="Cerrar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wc_initial_sync" model="ir.actions.act_window">
+        <field name="name">Sync Inicial WooCommerce</field>
+        <field name="res_model">wc.initial.sync</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_wc_initial_sync_form"/>
+        <field name="target">new</field>
+    </record>
+</odoo>

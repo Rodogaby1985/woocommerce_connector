@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_wc_dashboard_form" model="ir.ui.view">
+        <field name="name">wc.dashboard.form</field>
+        <field name="model">wc.backend</field>
+        <field name="arch" type="xml">
+            <form string="Dashboard WooCommerce" create="false" edit="false">
+                <sheet>
+                    <group>
+                        <group string="Productos">
+                            <field name="product_synced_count" readonly="1"/>
+                            <field name="product_total_count" readonly="1"/>
+                            <field name="variant_synced_count" readonly="1"/>
+                            <field name="variant_total_count" readonly="1"/>
+                        </group>
+                        <group string="Operación">
+                            <field name="month_order_count" readonly="1"/>
+                            <field name="pending_job_count" readonly="1"/>
+                            <field name="error_job_count" readonly="1"/>
+                            <field name="last_sync_date" readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wc_dashboard" model="ir.actions.act_window">
+        <field name="name">Dashboard WooCommerce</field>
+        <field name="res_model">wc.backend</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_wc_dashboard_form"/>
+    </record>
+</odoo>

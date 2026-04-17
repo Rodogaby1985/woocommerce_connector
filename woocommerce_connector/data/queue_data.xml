@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="wc_queue_job_demo_seed" model="wc.queue.job">
+        <field name="name">Inicialización de cola</field>
+        <field name="model_name">wc.backend</field>
+        <field name="record_id">1</field>
+        <field name="action">import</field>
+        <field name="priority">10</field>
+        <field name="state">cancelled</field>
+    </record>
+</odoo>
