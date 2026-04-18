@@ -1,4 +1,3 @@
-from . import wc_sync_mixin
 from . import wc_backend
 from . import wc_queue_job
 from . import product_attribute

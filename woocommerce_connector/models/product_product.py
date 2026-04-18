@@ -1,10 +1,11 @@
 from typing import Any, Dict
 
 from odoo import fields, models
+from .wc_sync_mixin import WcSyncMixin
 
 
-class ProductProduct(models.Model):
-    _inherit = ['product.product', 'wc.sync.mixin']
+class ProductProduct(WcSyncMixin, models.Model):
+    _inherit = 'product.product'
 
     wc_variation_id = fields.Integer(string='ID Variación WooCommerce', index=True)
     wc_sale_price = fields.Float(string='Precio oferta variante')
