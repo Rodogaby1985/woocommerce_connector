@@ -6,7 +6,7 @@ from odoo import fields, models
 _logger = logging.getLogger(__name__)
 
 
-class ProductTemplate(models.Model):
+class ProductTemplateWc(models.Model):
     _inherit = ['product.template', 'wc.sync.mixin']
 
     wc_id = fields.Integer(string='ID WooCommerce', index=True)

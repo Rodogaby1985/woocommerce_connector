@@ -1,7 +1,7 @@
 from odoo import fields, models
 
 
-class ResPartner(models.Model):
+class ResPartnerWc(models.Model):
     _inherit = ['res.partner', 'wc.sync.mixin']
 
     wc_customer_id = fields.Integer(string='ID Cliente WooCommerce', index=True)

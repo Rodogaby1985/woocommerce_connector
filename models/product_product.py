@@ -3,7 +3,7 @@ from typing import Any, Dict
 from odoo import fields, models
 
 
-class ProductProduct(models.Model):
+class ProductProductWc(models.Model):
     _inherit = ['product.product', 'wc.sync.mixin']
 
     wc_variation_id = fields.Integer(string='ID Variación WooCommerce', index=True)

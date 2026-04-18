@@ -5,7 +5,7 @@ from odoo import fields, models
 _logger = logging.getLogger(__name__)
 
 
-class SaleOrder(models.Model):
+class SaleOrderWc(models.Model):
     _inherit = ['sale.order', 'wc.sync.mixin']
 
     wc_order_id = fields.Integer(string='ID Pedido WooCommerce', index=True)
