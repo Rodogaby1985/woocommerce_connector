@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_wc_queue_job_tree" model="ir.ui.view">
+        <field name="name">wc.queue.job.tree</field>
+        <field name="model">wc.queue.job</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="model_name"/>
+                <field name="record_id"/>
+                <field name="action"/>
+                <field name="priority"/>
+                <field name="state"/>
+                <field name="retry_count"/>
+                <field name="date_created"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_wc_queue_job_form" model="ir.ui.view">
+        <field name="name">wc.queue.job.form</field>
+        <field name="model">wc.queue.job</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_retry" type="object" string="Reintentar" attrs="{'invisible': [('state', '!=', 'error')]}"/>
+                    <button name="action_cancel" type="object" string="Cancelar" attrs="{'invisible': [('state', 'not in', ['pending', 'error'])]}"/>
+                    <field name="state" widget="statusbar" statusbar_visible="pending,processing,done,error,cancelled"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="model_name"/>
+                        <field name="record_id"/>
+                        <field name="action"/>
+                        <field name="priority"/>
+                        <field name="retry_count"/>
+                        <field name="date_created"/>
+                        <field name="date_processed"/>
+                        <field name="error_message"/>
+                        <field name="data"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_wc_queue_job_search" model="ir.ui.view">
+        <field name="name">wc.queue.job.search</field>
+        <field name="model">wc.queue.job</field>
+        <field name="arch" type="xml">
+            <search>
+                <filter name="pending" string="Pendientes" domain="[('state', '=', 'pending')]"/>
+                <filter name="processing" string="En proceso" domain="[('state', '=', 'processing')]"/>
+                <filter name="error" string="Error" domain="[('state', '=', 'error')]"/>
+                <filter name="done" string="Completados" domain="[('state', '=', 'done')]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_wc_queue_job_list" model="ir.actions.act_window">
+        <field name="name">Cola de trabajos WooCommerce</field>
+        <field name="res_model">wc.queue.job</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="view_wc_queue_job_search"/>
+    </record>
+</odoo>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_sale_order_form_wc" model="ir.ui.view">
+        <field name="name">sale.order.form.woocommerce</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/group" position="after">
+                <group string="WooCommerce">
+                    <field name="wc_order_id" readonly="1"/>
+                    <field name="wc_order_status" readonly="1"/>
+                    <field name="wc_payment_method" readonly="1"/>
+                    <field name="wc_order_note" readonly="1"/>
+                    <field name="wc_sync_date" readonly="1"/>
+                </group>
+            </xpath>
+            <xpath expr="//header" position="inside">
+                <button name="action_sync_status_to_wc" type="object" string="Enviar estado a WC"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

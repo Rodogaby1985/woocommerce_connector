@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_product_template_form_wc" model="ir.ui.view">
+        <field name="name">product.template.form.woocommerce</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_only_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/notebook" position="inside">
+                <page string="WooCommerce">
+                    <group>
+                        <field name="wc_id" readonly="1"/>
+                        <field name="wc_product_type"/>
+                        <field name="wc_sale_price"/>
+                        <field name="wc_sale_date_from"/>
+                        <field name="wc_sale_date_to"/>
+                        <field name="wc_sync_date" readonly="1"/>
+                        <field name="wc_synced" readonly="1"/>
+                    </group>
+                    <footer>
+                        <button name="action_sync_to_wc" string="Sincronizar a WC" type="object" class="btn-primary"/>
+                        <button name="action_sync_from_wc" string="Traer de WC" type="object"/>
+                    </footer>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="cron_wc_process_queue" model="ir.cron">
+        <field name="name">WooCommerce: Procesar cola de trabajos</field>
+        <field name="model_id" ref="model_wc_backend"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_process_queue()</field>
+        <field name="interval_number">2</field>
+        <field name="interval_type">minutes</field>
+        <field name="numbercall">-1</field>
+        <field name="active">True</field>
+        <field name="priority">1</field>
+    </record>
+
+    <record id="cron_wc_cleanup_queue" model="ir.cron">
+        <field name="name">WooCommerce: Limpieza de cola</field>
+        <field name="model_id" ref="model_wc_queue_job"/>
+        <field name="state">code</field>
+        <field name="code">model._auto_cleanup()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="numbercall">-1</field>
+        <field name="active">True</field>
+    </record>
+</odoo>

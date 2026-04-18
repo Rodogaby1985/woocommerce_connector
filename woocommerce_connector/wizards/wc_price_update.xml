@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_wc_price_update_form" model="ir.ui.view">
+        <field name="name">wc.price.update.form</field>
+        <field name="model">wc.price.update</field>
+        <field name="arch" type="xml">
+            <form string="Actualización masiva de precios">
+                <group>
+                    <field name="product_ids" widget="many2many_tags"/>
+                    <field name="update_regular_price"/>
+                    <field name="update_sale_price"/>
+                </group>
+                <footer>
+                    <button name="action_update_prices" type="object" string="Encolar actualización" class="btn-primary"/>
+                    <button string="Cerrar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wc_price_update" model="ir.actions.act_window">
+        <field name="name">Actualización de precios WooCommerce</field>
+        <field name="res_model">wc.price.update</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_wc_price_update_form"/>
+        <field name="target">new</field>
+    </record>
+</odoo>

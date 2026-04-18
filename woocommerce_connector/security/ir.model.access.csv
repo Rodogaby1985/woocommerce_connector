@@ -1,0 +1,8 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_wc_backend_user,wc.backend user,model_wc_backend,woocommerce_connector.group_wc_user,1,0,0,0
+access_wc_backend_manager,wc.backend manager,model_wc_backend,woocommerce_connector.group_wc_manager,1,1,1,1
+access_wc_queue_job_user,wc.queue.job user,model_wc_queue_job,woocommerce_connector.group_wc_user,1,0,0,0
+access_wc_queue_job_manager,wc.queue.job manager,model_wc_queue_job,woocommerce_connector.group_wc_manager,1,1,1,1
+access_wc_category_sync_manager,wc.product.category.sync manager,model_wc_product_category_sync,woocommerce_connector.group_wc_manager,1,1,1,1
+access_wc_initial_sync_manager,wc.initial.sync manager,model_wc_initial_sync,woocommerce_connector.group_wc_manager,1,1,1,1
+access_wc_price_update_manager,wc.price.update manager,model_wc_price_update,woocommerce_connector.group_wc_manager,1,1,1,1

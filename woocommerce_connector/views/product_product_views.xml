@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_product_product_form_wc" model="ir.ui.view">
+        <field name="name">product.product.form.woocommerce</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_normal_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/group" position="after">
+                <group string="WooCommerce">
+                    <field name="wc_variation_id" readonly="1"/>
+                    <field name="wc_sale_price"/>
+                    <field name="wc_sale_date_from"/>
+                    <field name="wc_sale_date_to"/>
+                    <field name="wc_variant_sync_date" readonly="1"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>
