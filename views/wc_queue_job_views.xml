@@ -4,7 +4,7 @@
         <field name="name">wc.queue.job.tree</field>
         <field name="model">wc.queue.job</field>
         <field name="arch" type="xml">
-            <tree>
+            <list>
                 <field name="name"/>
                 <field name="model_name"/>
                 <field name="record_id"/>
@@ -13,7 +13,7 @@
                 <field name="state"/>
                 <field name="retry_count"/>
                 <field name="date_created"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -61,7 +61,7 @@
     <record id="action_wc_queue_job_list" model="ir.actions.act_window">
         <field name="name">Cola de trabajos WooCommerce</field>
         <field name="res_model">wc.queue.job</field>
-        <field name="view_mode">tree,form</field>
+        <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_wc_queue_job_search"/>
     </record>
 </odoo>
