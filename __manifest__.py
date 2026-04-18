@@ -21,9 +21,9 @@
         'views/res_partner_views.xml',
         'views/wc_queue_job_views.xml',
         'views/wc_dashboard_views.xml',
-        'views/menu.xml',
         'wizards/wc_initial_sync.xml',
         'wizards/wc_price_update.xml',
+        'views/menu.xml',
     ],
     'external_dependencies': {
         'python': ['requests'],
