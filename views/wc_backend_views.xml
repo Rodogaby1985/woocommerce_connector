@@ -28,7 +28,7 @@
                         <page string="Opciones de Sync">
                             <group>
                                 <field name="price_strategy"/>
-                                <field name="sale_pricelist_id" attrs="{'invisible': [('price_strategy', '!=', 'pricelist')]}"/>
+                                <field name="sale_pricelist_id" invisible="price_strategy != 'pricelist'"/>
                                 <field name="sync_stock"/>
                                 <field name="sync_prices"/>
                                 <field name="sync_orders"/>
