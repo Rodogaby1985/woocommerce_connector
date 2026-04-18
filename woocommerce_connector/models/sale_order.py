@@ -1,12 +1,13 @@
 import logging
 
 from odoo import fields, models
+from .wc_sync_mixin import WcSyncMixin
 
 _logger = logging.getLogger(__name__)
 
 
-class SaleOrder(models.Model):
-    _inherit = ['sale.order', 'wc.sync.mixin']
+class SaleOrder(WcSyncMixin, models.Model):
+    _inherit = 'sale.order'
 
     wc_order_id = fields.Integer(string='ID Pedido WooCommerce', index=True)
     wc_order_status = fields.Char(string='Estado WooCommerce')

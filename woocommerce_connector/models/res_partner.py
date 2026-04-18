@@ -1,8 +1,9 @@
 from odoo import fields, models
+from .wc_sync_mixin import WcSyncMixin
 
 
-class ResPartner(models.Model):
-    _inherit = ['res.partner', 'wc.sync.mixin']
+class ResPartner(WcSyncMixin, models.Model):
+    _inherit = 'res.partner'
 
     wc_customer_id = fields.Integer(string='ID Cliente WooCommerce', index=True)
     wc_sync_date = fields.Datetime(string='Última sync WooCommerce')

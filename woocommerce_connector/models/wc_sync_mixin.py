@@ -2,14 +2,10 @@ import json
 from datetime import timedelta
 from typing import Any, Dict, Iterable, Optional
 
-from odoo import api, fields, models
+from odoo import fields
 
 
-class WcSyncMixin(models.AbstractModel):
-    _name = 'wc.sync.mixin'
-    _description = 'Mixin de sincronización WooCommerce'
-
-    @api.model
+class WcSyncMixin:
     def _get_wc_backend(self):
         """Obtiene el backend activo de WooCommerce."""
         return self.env['wc.backend'].search([], limit=1)
@@ -28,12 +24,10 @@ class WcSyncMixin(models.AbstractModel):
                 'data': payload,
             })
 
-    @api.model
     def _is_wc_sync_disabled(self) -> bool:
         """Retorna True si el contexto actual desactiva el encolado de sync."""
         return bool(self.env.context.get('wc_no_sync'))
 
-    @api.model
     def _wc_field_changed(self, vals: Dict[str, Any], watched_fields: Iterable[str]) -> bool:
         """Detecta si cambió alguno de los campos monitoreados."""
         return any(field in vals for field in watched_fields)
