@@ -2,13 +2,12 @@ import logging
 from typing import Any, Dict
 
 from odoo import fields, models
-from .wc_sync_mixin import WcSyncMixin
 
 _logger = logging.getLogger(__name__)
 
 
-class ProductTemplate(WcSyncMixin, models.Model):
-    _inherit = 'product.template'
+class ProductTemplate(models.Model):
+    _inherit = ['product.template', 'wc.sync.mixin']
 
     wc_id = fields.Integer(string='ID WooCommerce', index=True)
     wc_sale_price = fields.Float(string='Precio oferta WooCommerce')
