@@ -5,7 +5,7 @@ from odoo import fields, models
 _logger = logging.getLogger(__name__)
 
 
-class ProductAttribute(models.Model):
+class ProductAttributeWc(models.Model):
     _inherit = 'product.attribute'
 
     wc_attribute_id = fields.Integer(string='ID Atributo WooCommerce', index=True)
