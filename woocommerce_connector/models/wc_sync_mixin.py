@@ -6,6 +6,12 @@ from odoo import fields
 
 
 class WcSyncMixin:
+    """Mixin Python puro para lógica de sync WooCommerce en modelos Odoo.
+
+    Este mixin asume que se usa junto a modelos Odoo (`models.Model`) que
+    proveen `self.env` y comportamiento de recordsets.
+    """
+
     def _get_wc_backend(self):
         """Obtiene el backend activo de WooCommerce."""
         return self.env['wc.backend'].search([], limit=1)
