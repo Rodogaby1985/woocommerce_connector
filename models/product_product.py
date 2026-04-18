@@ -1,16 +1,44 @@
+import json
+from datetime import timedelta
 from typing import Any, Dict
 
 from odoo import fields, models
 
 
 class ProductProduct(models.Model):
-    _inherit = ['product.product', 'wc.sync.mixin']
+    _inherit = 'product.product'
 
     wc_variation_id = fields.Integer(string='ID Variación WooCommerce', index=True)
     wc_sale_price = fields.Float(string='Precio oferta variante')
     wc_sale_date_from = fields.Datetime(string='Oferta variante desde')
     wc_sale_date_to = fields.Datetime(string='Oferta variante hasta')
     wc_variant_sync_date = fields.Datetime(string='Última sync variante')
+
+    def _get_wc_backend(self):
+        return self.env['wc.backend'].search([], limit=1)
+
+    def _enqueue_wc_job(self, action, priority=5, data=None):
+        queue = self.env['wc.queue.job']
+        payload = json.dumps(data or {})
+        for record in self:
+            queue.create({
+                'name': f'{record._name} #{record.id} - {action}',
+                'model_name': record._name,
+                'record_id': record.id,
+                'action': action,
+                'priority': priority,
+                'data': payload,
+            })
+
+    def _is_wc_sync_disabled(self):
+        return bool(self.env.context.get('wc_no_sync'))
+
+    def _wc_field_changed(self, vals, watched_fields):
+        return any(field in vals for field in watched_fields)
+
+    def _wc_recent_sync(self, sync_date_field):
+        cooldown = fields.Datetime.now() - timedelta(seconds=30)
+        return any(getattr(record, sync_date_field) and getattr(record, sync_date_field) >= cooldown for record in self)
 
     def _prepare_wc_variation_data(self) -> Dict[str, Any]:
         """Prepara payload de variación para WooCommerce."""

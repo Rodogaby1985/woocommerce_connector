@@ -1,4 +1,6 @@
+import json
 import logging
+from datetime import timedelta
 
 from odoo import fields, models
 
@@ -6,13 +8,39 @@ _logger = logging.getLogger(__name__)
 
 
 class SaleOrder(models.Model):
-    _inherit = ['sale.order', 'wc.sync.mixin']
+    _inherit = 'sale.order'
 
     wc_order_id = fields.Integer(string='ID Pedido WooCommerce', index=True)
     wc_order_status = fields.Char(string='Estado WooCommerce')
     wc_payment_method = fields.Char(string='Método de pago WooCommerce')
     wc_order_note = fields.Text(string='Nota WooCommerce')
     wc_sync_date = fields.Datetime(string='Última sync WooCommerce')
+
+    def _get_wc_backend(self):
+        return self.env['wc.backend'].search([], limit=1)
+
+    def _enqueue_wc_job(self, action, priority=5, data=None):
+        queue = self.env['wc.queue.job']
+        payload = json.dumps(data or {})
+        for record in self:
+            queue.create({
+                'name': f'{record._name} #{record.id} - {action}',
+                'model_name': record._name,
+                'record_id': record.id,
+                'action': action,
+                'priority': priority,
+                'data': payload,
+            })
+
+    def _is_wc_sync_disabled(self):
+        return bool(self.env.context.get('wc_no_sync'))
+
+    def _wc_field_changed(self, vals, watched_fields):
+        return any(field in vals for field in watched_fields)
+
+    def _wc_recent_sync(self, sync_date_field):
+        cooldown = fields.Datetime.now() - timedelta(seconds=30)
+        return any(getattr(record, sync_date_field) and getattr(record, sync_date_field) >= cooldown for record in self)
 
     def _process_wc_order(self, wc_order: dict):
         """Crea o actualiza pedido de venta desde WooCommerce."""
