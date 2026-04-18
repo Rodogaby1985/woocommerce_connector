@@ -21,7 +21,7 @@
                     <field name="log" readonly="1" nolabel="1"/>
                 </group>
                 <footer>
-                    <button name="action_start_sync" type="object" string="Iniciar" class="btn-primary" attrs="{'invisible': [('state', '!=', 'config')]}"/>
+                    <button name="action_start_sync" type="object" string="Iniciar" class="btn-primary" invisible="state != 'config'"/>
                     <button string="Cerrar" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>

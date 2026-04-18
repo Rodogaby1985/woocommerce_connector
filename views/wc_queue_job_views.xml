@@ -23,8 +23,8 @@
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="action_retry" type="object" string="Reintentar" attrs="{'invisible': [('state', '!=', 'error')]}"/>
-                    <button name="action_cancel" type="object" string="Cancelar" attrs="{'invisible': [('state', 'not in', ['pending', 'error'])]}"/>
+                    <button name="action_retry" type="object" string="Reintentar" invisible="state != 'error'"/>
+                    <button name="action_cancel" type="object" string="Cancelar" invisible="state not in ('pending', 'error')"/>
                     <field name="state" widget="statusbar" statusbar_visible="pending,processing,done,error,cancelled"/>
                 </header>
                 <sheet>
