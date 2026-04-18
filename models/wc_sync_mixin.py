@@ -2,13 +2,10 @@ import json
 from datetime import timedelta
 from typing import Any, Dict, Iterable, Optional
 
-from odoo import fields, models
+from odoo import fields
 
 
-class WcSyncMixin(models.AbstractModel):
-    _name = 'wc.sync.mixin'
-    _description = 'WooCommerce Sync Mixin'
-
+class WcSyncMixin:
     """Mixin Python puro para lógica de sync WooCommerce en modelos Odoo.
 
     Este mixin asume que se usa junto a modelos Odoo (`models.Model`) que

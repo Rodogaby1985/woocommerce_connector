@@ -1,6 +1,5 @@
 from . import wc_backend
 from . import wc_queue_job
-from . import wc_sync_mixin
 from . import product_attribute
 from . import product_template
 from . import product_product
