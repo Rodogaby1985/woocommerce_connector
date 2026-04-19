@@ -5,7 +5,7 @@
         <field name="model">product.product</field>
         <field name="inherit_id" ref="product.product_normal_form_view"/>
         <field name="arch" type="xml">
-            <xpath expr="//sheet/group" position="after">
+            <xpath expr="//sheet" position="inside">
                 <group string="WooCommerce">
                     <field name="wc_variation_id" readonly="1"/>
                     <field name="wc_sale_price"/>
