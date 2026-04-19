@@ -16,10 +16,10 @@
                         <field name="wc_sync_date" readonly="1"/>
                         <field name="wc_synced" readonly="1"/>
                     </group>
-                    <footer>
+                    <group>
                         <button name="action_sync_to_wc" string="Sincronizar a WC" type="object" class="btn-primary"/>
                         <button name="action_sync_from_wc" string="Traer de WC" type="object"/>
-                    </footer>
+                    </group>
                 </page>
             </xpath>
         </field>
