@@ -113,7 +113,7 @@ class ProductTemplate(models.Model):
             return {'imported': 0, 'mapped': 0}
 
         try:
-            backend_batch_size = int(backend.batch_size or 100)
+            backend_batch_size = int(backend.batch_size) if backend.batch_size else 100
         except (TypeError, ValueError):
             backend_batch_size = 100
         page_size = min(max(backend_batch_size, 1), 100)
@@ -230,7 +230,7 @@ class ProductTemplate(models.Model):
                     variant = variants_by_sku.get(variation.get('sku'))
                 get_variant_for_combination = getattr(self, '_get_variant_for_combination', None)
                 if not variant and combination_values and callable(get_variant_for_combination):
-                    variant = self._get_variant_for_combination(combination_values)
+                    variant = get_variant_for_combination(combination_values)
             else:
                 attrs_signature = tuple(sorted(
                     (
