@@ -165,7 +165,7 @@ class ProductTemplate(models.Model):
                         'name': option,
                     })
                 used_values.setdefault(attribute.id, set()).add(value.id)
-                value_ref_by_pair[(attribute.name.strip().lower(), option.lower())] = value
+                value_ref_by_pair.setdefault((attribute.name.strip().lower(), option.lower()), value)
 
         if used_values:
             existing_lines = {line.attribute_id.id: line for line in self.attribute_line_ids}
@@ -183,10 +183,14 @@ class ProductTemplate(models.Model):
             self._create_variant_ids()
 
         variants = self.product_variant_ids
-        variants_by_wc_id = {variant.wc_variation_id: variant for variant in variants.filtered('wc_variation_id')}
-        variants_by_sku = {variant.default_code: variant for variant in variants.filtered('default_code')}
+        variants_by_wc_id = {}
+        variants_by_sku = {}
         variants_by_attrs = {}
         for variant in variants:
+            if variant.wc_variation_id and variant.wc_variation_id not in variants_by_wc_id:
+                variants_by_wc_id[variant.wc_variation_id] = variant
+            if variant.default_code and variant.default_code not in variants_by_sku:
+                variants_by_sku[variant.default_code] = variant
             signature = tuple(sorted(
                 (
                     ptav.attribute_id.name.strip().lower(),
@@ -196,7 +200,7 @@ class ProductTemplate(models.Model):
                 if ptav.attribute_id and ptav.product_attribute_value_id
             ))
             if signature:
-                variants_by_attrs[signature] = variant
+                variants_by_attrs.setdefault(signature, variant)
 
         mapped_count = 0
         variation_ids = {variation.get('id') for variation in variations if variation.get('id')}
