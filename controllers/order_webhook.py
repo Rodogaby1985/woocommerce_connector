@@ -33,7 +33,7 @@ class WooCommerceOrderWebhook(http.Controller):
 
         try:
             payload = json.loads(raw_body.decode('utf-8')) if raw_body else {}
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             _logger.warning('Webhook order.created descartado: payload JSON inválido')
             return Response('Invalid JSON payload', status=400)
         source_url = request.httprequest.headers.get('X-WC-Webhook-Source') or self._extract_source_url(payload)
@@ -51,7 +51,12 @@ class WooCommerceOrderWebhook(http.Controller):
         for backend in ordered_backends:
             if not backend.webhook_secret:
                 continue
-            digest = hmac.new(backend.webhook_secret.encode('utf-8'), raw_body, hashlib.sha256).digest()
+            try:
+                secret_bytes = backend.webhook_secret.encode('utf-8')
+            except UnicodeEncodeError:
+                _logger.warning('Webhook secret inválido en backend %s', backend.display_name)
+                continue
+            digest = hmac.new(secret_bytes, raw_body, hashlib.sha256).digest()
             expected_signature = base64.b64encode(digest).decode('utf-8')
             if signature and hmac.compare_digest(signature, expected_signature):
                 verified_backend = backend

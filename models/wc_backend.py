@@ -203,9 +203,9 @@ class WcBackend(models.Model):
         if not url:
             return False
         parsed = urlparse(url.strip())
-        if not parsed.netloc:
+        if not parsed.scheme or not parsed.netloc:
             return False
-        return f'{parsed.scheme or "https"}://{parsed.netloc}'.rstrip('/').lower()
+        return f'{parsed.scheme}://{parsed.netloc}'.rstrip('/').lower()
 
     @api.model
     def _get_order_webhook_backends(self):
@@ -229,7 +229,10 @@ class WcBackend(models.Model):
 
     def _enqueue_order_import_webhook_job(self, order_id, push_stock_after_import=True):
         self.ensure_one()
-        order_id = int(order_id)
+        try:
+            order_id = int(order_id)
+        except (TypeError, ValueError) as exc:
+            raise UserError(f'ID de pedido inválido para webhook: {order_id}') from exc
         self.env['wc.queue.job'].create({
             'name': f'Webhook import order #{order_id}',
             'model_name': self._name,
@@ -245,11 +248,17 @@ class WcBackend(models.Model):
 
     def _webhook_import_order_by_id(self, order_id, push_stock_after_import=True):
         self.ensure_one()
-        wc_order = self._wc_get(f'orders/{int(order_id)}')
+        try:
+            normalized_order_id = int(order_id)
+        except (TypeError, ValueError) as exc:
+            raise UserError(f'ID de pedido inválido para importación webhook: {order_id}') from exc
+        wc_order = self._wc_get(f'orders/{normalized_order_id}')
         order = self.env['sale.order']._process_wc_order(wc_order)
         if not push_stock_after_import or not self.sync_stock:
             return order
 
+        if not order.order_line:
+            return order
         variants = order.order_line.mapped('product_id').filtered(lambda p: p.wc_variation_id)
         for variant in variants:
             variant.action_sync_to_wc()
