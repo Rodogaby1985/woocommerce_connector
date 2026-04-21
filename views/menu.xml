@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <menuitem id="menu_wc_root" name="WooCommerce" sequence="50" web_icon="woocommerce_connector,static/description/icon.png" groups="woocommerce_connector.group_wc_user,woocommerce_connector.group_wc_manager"/>
-    <menuitem id="menu_wc_dashboard" parent="menu_wc_root" name="Dashboard" action="action_wc_dashboard" sequence="1"/>
+    <menuitem id="menu_wc_dashboard" parent="menu_wc_root" name="Dashboard" action="action_wc_dashboard_server" sequence="1"/>
     <menuitem id="menu_wc_config" parent="menu_wc_root" name="Configuración" action="action_wc_backend_form" sequence="2" groups="woocommerce_connector.group_wc_manager"/>
     <menuitem id="menu_wc_queue" parent="menu_wc_root" name="Cola de trabajos" action="action_wc_queue_job_list" sequence="3" groups="woocommerce_connector.group_wc_manager"/>
     <menuitem id="menu_wc_sync_wizard" parent="menu_wc_root" name="Sync Inicial" action="action_wc_initial_sync" sequence="4" groups="woocommerce_connector.group_wc_manager"/>

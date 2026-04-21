@@ -25,10 +25,10 @@
         </field>
     </record>
 
-    <record id="action_wc_dashboard" model="ir.actions.act_window">
+    <record id="action_wc_dashboard_server" model="ir.actions.server">
         <field name="name">Dashboard WooCommerce</field>
-        <field name="res_model">wc.backend</field>
-        <field name="view_mode">form</field>
-        <field name="view_id" ref="view_wc_dashboard_form"/>
+        <field name="model_id" ref="model_wc_backend"/>
+        <field name="state">code</field>
+        <field name="code">action = model.action_open_dashboard()</field>
     </record>
 </odoo>
