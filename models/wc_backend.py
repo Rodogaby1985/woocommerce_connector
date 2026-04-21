@@ -128,6 +128,23 @@ class WcBackend(models.Model):
             'context': {'default_batch_size': self.batch_size},
         }
 
+    def action_open_dashboard(self):
+        """Abre el dashboard sobre un backend existente."""
+        backend = self.env['wc.backend'].search([('state', '=', 'connected')], limit=1)
+        if not backend:
+            backend = self.env['wc.backend'].search([], limit=1)
+        if not backend:
+            return self.env['ir.actions.actions']._for_xml_id('woocommerce_connector.action_wc_backend_form')
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Dashboard WooCommerce',
+            'res_model': 'wc.backend',
+            'view_mode': 'form',
+            'view_id': self.env.ref('woocommerce_connector.view_wc_dashboard_form').id,
+            'res_id': backend.id,
+            'target': 'current',
+        }
+
     def _cron_process_queue(self):
         """Procesa cola de sincronizaciones desde cron."""
         try:
