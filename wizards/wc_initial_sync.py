@@ -13,6 +13,8 @@ class WcInitialSync(models.TransientModel):
     sync_customers = fields.Boolean(string='Sincronizar clientes', default=True)
     sync_orders = fields.Boolean(string='Sincronizar pedidos', default=False)
     batch_size = fields.Integer(string='Tamaño de lote', default=50)
+    product_limit = fields.Integer(string='Límite de productos (0 = Todos)', default=0)
+    start_page = fields.Integer(string='Desde página', default=1)
     state = fields.Selection([
         ('config', 'Configuración'),
         ('running', 'Ejecutando'),
@@ -41,13 +43,19 @@ class WcInitialSync(models.TransientModel):
 
         try:
             if self.sync_products:
-                page = 1
+                page = self.start_page if self.start_page > 0 else 1
                 processed = 0
                 total_variants = self.synced_variants
+                product_limit = self.product_limit if self.product_limit > 0 else None
+                self.write({'log': (self.log or '') + '\nIniciando sync de productos desde página %s%s.' % (
+                    page,
+                    ' con límite %s' % product_limit if product_limit else '',
+                )})
                 while True:
                     products = backend._wc_get('products', params={'per_page': 100, 'page': page})
                     if not products:
                         break
+                    self.write({'log': (self.log or '') + '\nProcesando página %s (%s productos)...' % (page, len(products))})
                     for wc_product in products:
                         template = self.env['product.template'].search([('wc_id', '=', wc_product.get('id'))], limit=1)
                         if not template:
@@ -57,6 +65,10 @@ class WcInitialSync(models.TransientModel):
                         if wc_product.get('type') == 'variable':
                             template._sync_variable_product_from_wc(wc_product)
                             total_variants += len(template.product_variant_ids)
+                        if product_limit and processed >= product_limit:
+                            break
+                    if product_limit and processed >= product_limit:
+                        break
                     page += 1
 
                 self.write({
@@ -64,6 +76,9 @@ class WcInitialSync(models.TransientModel):
                     'synced_products': processed,
                     'total_variants': total_variants,
                     'synced_variants': total_variants,
+                    'log': (self.log or '') + '\nSincronización de productos finalizada. '
+                                             '%s productos importados. '
+                                             'Próxima ejecución desde página: %s.' % (processed, page),
                 })
 
             if self.sync_customers:
