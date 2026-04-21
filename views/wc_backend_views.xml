@@ -38,8 +38,8 @@
                                 <field name="rate_limit"/>
                             </group>
                             <group string="Alertas">
-                                <field name="email_alert_enabled"/>
-                                <field name="email_alert_recipients" placeholder="mail1@empresa.com,mail2@empresa.com"/>
+                                <field name="enable_error_notifications"/>
+                                <field name="error_notification_emails" placeholder="mail1@empresa.com, mail2@empresa.com; mail3@empresa.com"/>
                             </group>
                         </page>
                         <page string="Estado">

@@ -13,6 +13,7 @@ from odoo.exceptions import UserError
 _logger = logging.getLogger(__name__)
 _last_call_times: Dict[int, float] = {}
 _rate_lock = threading.Lock()
+_EMAIL_PATTERN = re.compile(r'^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$')
 
 
 class WcBackend(models.Model):
@@ -34,8 +35,8 @@ class WcBackend(models.Model):
     sync_orders = fields.Boolean(string='Sincronizar pedidos', default=True)
     sync_customers = fields.Boolean(string='Sincronizar clientes', default=True)
     sync_images = fields.Boolean(string='Sincronizar imágenes', default=False)
-    email_alert_enabled = fields.Boolean(string='Activar alertas por email', default=False)
-    email_alert_recipients = fields.Char(string='Destinatarios de alerta')
+    enable_error_notifications = fields.Boolean(string='Activar alertas de error', default=False)
+    error_notification_emails = fields.Text(string='Emails de notificación de error')
     batch_size = fields.Integer(string='Tamaño de lote', default=50)
     rate_limit = fields.Integer(string='Llamadas por minuto', default=60)
     state = fields.Selection([
@@ -141,11 +142,10 @@ class WcBackend(models.Model):
     def _send_alert_email(self, subject: str, body: str):
         """Envía alertas por email según configuración del backend."""
         self.ensure_one()
-        if not self.email_alert_enabled:
+        if not self.enable_error_notifications:
             return False
 
-        recipients_raw = self.email_alert_recipients or ''
-        recipients = [mail.strip() for mail in re.split(r'[;,]', recipients_raw) if mail and mail.strip()]
+        recipients = self._parse_notification_emails()
         if not recipients:
             _logger.warning(
                 'Alerta WooCommerce no enviada: configure destinatarios en backend %s (%s)',
@@ -161,3 +161,30 @@ class WcBackend(models.Model):
         })
         mail.send()
         return True
+
+    def _parse_notification_emails(self):
+        self.ensure_one()
+        recipients_raw = self.error_notification_emails or ''
+        raw_candidates = [mail.strip() for mail in re.split(r'[,;\s]+', recipients_raw) if mail.strip()]
+        valid_recipients = []
+        invalid_recipients = []
+        seen = set()
+        for email in raw_candidates:
+            normalized = email
+            if not normalized:
+                continue
+            if not _EMAIL_PATTERN.match(normalized):
+                invalid_recipients.append(normalized)
+                continue
+            if normalized.lower() in seen:
+                continue
+            seen.add(normalized.lower())
+            valid_recipients.append(normalized)
+        if invalid_recipients:
+            _logger.warning(
+                'Se ignoraron emails inválidos en backend %s (%s): %s',
+                self.display_name,
+                self.id,
+                ', '.join(invalid_recipients),
+            )
+        return valid_recipients

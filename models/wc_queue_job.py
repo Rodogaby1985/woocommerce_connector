@@ -6,6 +6,7 @@ from datetime import timedelta
 from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
+_MAX_TRACEBACK_SUMMARY_LINES = 12
 
 
 class WcQueueJob(models.Model):
@@ -79,12 +80,30 @@ class WcQueueJob(models.Model):
                 'date_processed': fields.Datetime.now() if state == 'error' else False,
             })
             if state == 'error':
-                backend = self._get_backend_for_alert(record=self.env[self.model_name].browse(self.record_id))
+                record_for_alert = self.env[self.model_name].browse(self.record_id)
+                backend = self._get_backend_for_alert(record=record_for_alert)
                 if backend:
+                    operation = self._get_operation_label(record_for_alert=record_for_alert)
+                    traceback_summary = self._summarize_traceback(traceback_text)
+                    sku = getattr(record_for_alert, 'default_code', None)
+                    if sku in (None, ''):
+                        sku = self._extract_identifier_from_payload('sku') or '-'
+                    wc_id = getattr(record_for_alert, 'wc_id', None)
+                    if wc_id in (None, ''):
+                        wc_id = self._extract_identifier_from_payload('wc_id', 'product_id') or '-'
+                    wc_variation_id = getattr(record_for_alert, 'wc_variation_id', None)
+                    if wc_variation_id in (None, ''):
+                        wc_variation_id = self._extract_identifier_from_payload('wc_variation_id', 'variation_id') or '-'
                     backend._send_alert_email(
-                        subject=f'[WooCommerce] Job en error #{self.id}: {self.name}',
+                        subject=(
+                            f'[WooCommerce][{self.env.cr.dbname}]'
+                            f'[{backend.display_name}] {operation} - job en error'
+                        ),
                         body=(
                             f'Se detectó un error final en la cola de WooCommerce.\n\n'
+                            f'Fecha/Hora: {fields.Datetime.now()}\n'
+                            f'Backend: {backend.display_name}\n'
+                            f'Operación: {operation}\n'
                             f'Job id: {self.id}\n'
                             f'Nombre: {self.name}\n'
                             f'Modelo: {self.model_name}\n'
@@ -92,10 +111,47 @@ class WcQueueJob(models.Model):
                             f'Acción: {self.action}\n'
                             f'Prioridad: {self.priority}\n'
                             f'Reintentos: {retries}\n'
+                            f'SKU/default_code: {sku}\n'
+                            f'wc_id: {wc_id}\n'
+                            f'wc_variation_id: {wc_variation_id}\n'
                             f'Error: {exc}\n\n'
-                            f'Traceback:\n{traceback_text}'
+                            f'Resumen traceback:\n{traceback_summary}'
                         ),
                     )
+
+    def _extract_identifier_from_payload(self, *keys):
+        self.ensure_one()
+        try:
+            payload = json.loads(self.data or '{}')
+        except Exception:
+            return False
+        for key in keys:
+            value = payload.get(key)
+            if value:
+                return value
+        return False
+
+    def _summarize_traceback(self, traceback_text):
+        lines = [line for line in (traceback_text or '').strip().splitlines() if line.strip()]
+        if not lines:
+            return 'Sin traceback disponible'
+        return '\n'.join(lines[-_MAX_TRACEBACK_SUMMARY_LINES:])
+
+    def _get_operation_label(self, record_for_alert=None):
+        self.ensure_one()
+        payload_method = self._extract_identifier_from_payload('method')
+        model = self.model_name or '-'
+        if model == 'product.product':
+            return 'Exportar stock' if self.action == 'export' else 'Importar variación'
+        if model == 'product.template':
+            return 'Exportar producto' if self.action == 'export' else 'Importar producto'
+        if model == 'sale.order':
+            return 'Exportar pedido' if self.action == 'export' else 'Importar pedido'
+        if payload_method:
+            return f'{self.action or "sync"}::{payload_method}'
+        if record_for_alert and getattr(record_for_alert, '_description', None):
+            return f'{self.action or "sync"} {record_for_alert._description}'
+        return f'{self.action or "sync"} {model}'
 
     @api.model
     def _get_backend_for_alert(self, record=None):
