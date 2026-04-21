@@ -155,6 +155,8 @@ class WcQueueJob(models.Model):
 
     @api.model
     def _get_backend_for_alert(self, record=None):
+        if record and record._name == 'wc.backend':
+            return record
         if record and hasattr(record, '_get_wc_backend'):
             backend = record._get_wc_backend()
             if backend:
