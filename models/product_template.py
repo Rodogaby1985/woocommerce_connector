@@ -112,7 +112,11 @@ class ProductTemplate(models.Model):
         if not backend or not self.wc_id:
             return {'imported': 0, 'mapped': 0}
 
-        page_size = min(max(int(backend.batch_size or 100), 1), 100)
+        try:
+            backend_batch_size = int(backend.batch_size or 100)
+        except (TypeError, ValueError):
+            backend_batch_size = 100
+        page_size = min(max(backend_batch_size, 1), 100)
         page = 1
         variations = []
         while True:
@@ -170,7 +174,7 @@ class ProductTemplate(models.Model):
                 line = existing_lines.get(attribute_id)
                 sorted_values = sorted(value_ids)
                 if line:
-                    if set(line.value_ids.ids) != value_ids:
+                    if set(line.value_ids.ids) != set(sorted_values):
                         line.write({'value_ids': [(6, 0, sorted_values)]})
                 else:
                     create_commands.append((0, 0, {'attribute_id': attribute_id, 'value_ids': [(6, 0, sorted_values)]}))
