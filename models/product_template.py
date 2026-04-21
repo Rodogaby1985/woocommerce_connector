@@ -165,7 +165,7 @@ class ProductTemplate(models.Model):
                         'name': option,
                     })
                 used_values.setdefault(attribute.id, set()).add(value.id)
-                value_ref_by_pair.setdefault((attribute.name.strip().lower(), option.lower()), value)
+                value_ref_by_pair[(attribute.name.strip().lower(), option.lower())] = value
 
         if used_values:
             existing_lines = {line.attribute_id.id: line for line in self.attribute_line_ids}
@@ -200,7 +200,8 @@ class ProductTemplate(models.Model):
                 if ptav.attribute_id and ptav.product_attribute_value_id
             ))
             if signature:
-                variants_by_attrs.setdefault(signature, variant)
+                if signature not in variants_by_attrs:
+                    variants_by_attrs[signature] = variant
 
         mapped_count = 0
         variation_ids = {variation.get('id') for variation in variations if variation.get('id')}
@@ -227,7 +228,8 @@ class ProductTemplate(models.Model):
                 variant = variants_by_attrs.get(normalized_signature)
                 if not variant and variation.get('sku'):
                     variant = variants_by_sku.get(variation.get('sku'))
-                if not variant and combination_values and hasattr(self, '_get_variant_for_combination'):
+                get_variant_for_combination = getattr(self, '_get_variant_for_combination', None)
+                if not variant and combination_values and callable(get_variant_for_combination):
                     variant = self._get_variant_for_combination(combination_values)
             else:
                 attrs_signature = tuple(sorted(
