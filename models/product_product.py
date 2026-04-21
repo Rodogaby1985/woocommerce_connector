@@ -63,6 +63,8 @@ class ProductProduct(models.Model):
             'default_code': wc_variation.get('sku') or False,
             'lst_price': float(wc_variation.get('regular_price') or 0.0),
             'wc_sale_price': float(wc_variation.get('sale_price') or 0.0),
+            'wc_sale_date_from': wc_variation.get('date_on_sale_from') or False,
+            'wc_sale_date_to': wc_variation.get('date_on_sale_to') or False,
             'wc_variation_id': wc_variation.get('id') or self.wc_variation_id,
             'wc_variant_sync_date': fields.Datetime.now(),
         }

@@ -45,7 +45,9 @@ class WcInitialSync(models.TransientModel):
             if self.sync_products:
                 page = self.start_page if self.start_page > 0 else 1
                 processed = 0
-                total_variants = self.synced_variants
+                total_variants = 0
+                synced_variants = 0
+                variable_products = 0
                 product_limit = self.product_limit if self.product_limit > 0 else None
                 self.write({'log': (self.log or '') + '\nIniciando sync de productos desde página %s%s.' % (
                     page,
@@ -63,8 +65,18 @@ class WcInitialSync(models.TransientModel):
                         template._process_wc_data(wc_product)
                         processed += 1
                         if wc_product.get('type') == 'variable':
-                            template._sync_variable_product_from_wc(wc_product)
-                            total_variants += len(template.product_variant_ids)
+                            variable_products += 1
+                            variation_stats = template._sync_variable_product_from_wc(wc_product)
+                            total_variants += variation_stats.get('imported', 0)
+                            synced_variants += variation_stats.get('mapped', 0)
+                            self.write({
+                                'log': (self.log or '') + '\nProducto variable %s (Woo ID %s): %s variaciones importadas, %s mapeadas.' % (
+                                    template.display_name,
+                                    template.wc_id,
+                                    variation_stats.get('imported', 0),
+                                    variation_stats.get('mapped', 0),
+                                )
+                            })
                         if product_limit and processed >= product_limit:
                             break
                     if product_limit and processed >= product_limit:
@@ -75,10 +87,17 @@ class WcInitialSync(models.TransientModel):
                     'total_products': processed,
                     'synced_products': processed,
                     'total_variants': total_variants,
-                    'synced_variants': total_variants,
+                    'synced_variants': synced_variants,
                     'log': (self.log or '') + '\nSincronización de productos finalizada. '
-                                             '%s productos importados. '
-                                             'Próxima ejecución desde página: %s.' % (processed, page),
+                                             '%s productos importados (%s variables). '
+                                             '%s variaciones importadas, %s mapeadas. '
+                                             'Próxima ejecución desde página: %s.' % (
+                                                 processed,
+                                                 variable_products,
+                                                 total_variants,
+                                                 synced_variants,
+                                                 page,
+                                             ),
                 })
 
             if self.sync_customers:
