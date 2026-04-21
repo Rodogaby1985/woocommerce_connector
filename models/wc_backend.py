@@ -1,6 +1,8 @@
 import logging
+import re
 import threading
 import time
+from html import escape
 from typing import Any, Dict, List, Optional, Union
 
 import requests
@@ -32,6 +34,8 @@ class WcBackend(models.Model):
     sync_orders = fields.Boolean(string='Sincronizar pedidos', default=True)
     sync_customers = fields.Boolean(string='Sincronizar clientes', default=True)
     sync_images = fields.Boolean(string='Sincronizar imágenes', default=False)
+    email_alert_enabled = fields.Boolean(string='Activar alertas por email', default=False)
+    email_alert_recipients = fields.Char(string='Destinatarios de alerta')
     batch_size = fields.Integer(string='Tamaño de lote', default=50)
     rate_limit = fields.Integer(string='Llamadas por minuto', default=60)
     state = fields.Selection([
@@ -133,3 +137,27 @@ class WcBackend(models.Model):
             backend = self.search([], limit=1)
             if backend:
                 backend.write({'state': 'error', 'last_error': str(exc)})
+
+    def _send_alert_email(self, subject: str, body: str):
+        """Envía alertas por email según configuración del backend."""
+        self.ensure_one()
+        if not self.email_alert_enabled:
+            return False
+
+        recipients_raw = self.email_alert_recipients or ''
+        recipients = [mail.strip() for mail in re.split(r'[;,]', recipients_raw) if mail and mail.strip()]
+        if not recipients:
+            _logger.warning(
+                'Alerta WooCommerce no enviada: configure destinatarios en backend %s (%s)',
+                self.display_name,
+                self.id,
+            )
+            return False
+
+        mail = self.env['mail.mail'].sudo().create({
+            'subject': subject,
+            'email_to': ','.join(recipients),
+            'body_html': f'<pre style="white-space:pre-wrap">{escape(body or "")}</pre>',
+        })
+        mail.send()
+        return True

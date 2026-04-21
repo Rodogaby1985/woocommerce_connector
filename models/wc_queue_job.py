@@ -1,5 +1,6 @@
 import json
 import logging
+import traceback
 from datetime import timedelta
 
 from odoo import api, fields, models
@@ -68,6 +69,7 @@ class WcQueueJob(models.Model):
             self.write({'state': 'done', 'error_message': False, 'date_processed': fields.Datetime.now()})
         except Exception as exc:
             _logger.exception('Error procesando trabajo WooCommerce %s', self.id)
+            traceback_text = traceback.format_exc()
             retries = self.retry_count + 1
             state = 'pending' if retries < 3 else 'error'
             self.write({
@@ -76,6 +78,34 @@ class WcQueueJob(models.Model):
                 'error_message': str(exc),
                 'date_processed': fields.Datetime.now() if state == 'error' else False,
             })
+            if state == 'error':
+                backend = self._get_backend_for_alert(record=self.env[self.model_name].browse(self.record_id))
+                if backend:
+                    backend._send_alert_email(
+                        subject=f'[WooCommerce] Job en error #{self.id}: {self.name}',
+                        body=(
+                            f'Se detectó un error final en la cola de WooCommerce.\n\n'
+                            f'Job id: {self.id}\n'
+                            f'Nombre: {self.name}\n'
+                            f'Modelo: {self.model_name}\n'
+                            f'Record ID: {self.record_id}\n'
+                            f'Acción: {self.action}\n'
+                            f'Prioridad: {self.priority}\n'
+                            f'Reintentos: {retries}\n'
+                            f'Error: {exc}\n\n'
+                            f'Traceback:\n{traceback_text}'
+                        ),
+                    )
+
+    @api.model
+    def _get_backend_for_alert(self, record=None):
+        if record and hasattr(record, '_get_wc_backend'):
+            backend = record._get_wc_backend()
+            if backend:
+                return backend
+        if record and 'backend_id' in record._fields and record.backend_id:
+            return record.backend_id
+        return self.env['wc.backend'].search([], limit=1)
 
     @api.model
     def _auto_cleanup(self):

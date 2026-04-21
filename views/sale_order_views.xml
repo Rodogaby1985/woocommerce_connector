@@ -12,10 +12,23 @@
                     <field name="wc_payment_method" readonly="1"/>
                     <field name="wc_order_note" readonly="1"/>
                     <field name="wc_sync_date" readonly="1"/>
+                    <field name="wc_stock_mismatch" readonly="1"/>
+                    <field name="wc_stock_mismatch_note" readonly="1" invisible="not wc_stock_mismatch"/>
                 </group>
             </xpath>
             <xpath expr="//header" position="inside">
                 <button name="action_sync_status_to_wc" type="object" string="Enviar estado a WC"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_sale_order_search_wc" model="ir.ui.view">
+        <field name="name">sale.order.search.woocommerce</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_sales_order_filter"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <filter name="wc_stock_mismatch" string="Revisar stock Woo" domain="[('wc_stock_mismatch', '=', True)]"/>
             </xpath>
         </field>
     </record>
