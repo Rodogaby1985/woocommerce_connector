@@ -22,7 +22,11 @@
                                 <field name="wc_url"/>
                                 <field name="wc_consumer_key" password="True"/>
                                 <field name="wc_consumer_secret" password="True"/>
+                                <field name="enable_order_webhook"/>
                                 <field name="webhook_secret" password="True"/>
+                                <field name="webhook_push_stock_after_import" invisible="not enable_order_webhook"/>
+                                <field name="webhook_last_received_at" readonly="1"/>
+                                <field name="webhook_last_error" readonly="1"/>
                             </group>
                         </page>
                         <page string="Opciones de Sync">

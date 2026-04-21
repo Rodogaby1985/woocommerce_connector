@@ -1,13 +1,15 @@
+import json
 import logging
 import re
 import threading
 import time
 from html import escape
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlparse
 
 import requests
 
-from odoo import fields, models
+from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -24,7 +26,14 @@ class WcBackend(models.Model):
     wc_url = fields.Char(string='URL WooCommerce', required=True)
     wc_consumer_key = fields.Char(string='Consumer Key', required=True)
     wc_consumer_secret = fields.Char(string='Consumer Secret', required=True)
+    enable_order_webhook = fields.Boolean(string='Activar webhook de pedidos', default=False)
     webhook_secret = fields.Char(string='Secreto Webhook')
+    webhook_push_stock_after_import = fields.Boolean(
+        string='Actualizar stock tras importar pedido (webhook)',
+        default=True,
+    )
+    webhook_last_received_at = fields.Datetime(string='Último webhook recibido', readonly=True)
+    webhook_last_error = fields.Text(string='Último error de webhook', readonly=True)
     price_strategy = fields.Selection([
         ('custom_fields', 'Campos personalizados'),
         ('pricelist', 'Lista de precios'),
@@ -205,3 +214,69 @@ class WcBackend(models.Model):
                 ', '.join(invalid_recipients),
             )
         return valid_recipients
+
+    @api.model
+    def _normalize_store_url(self, url):
+        if not url:
+            return False
+        parsed = urlparse(url.strip())
+        if not parsed.scheme or not parsed.netloc:
+            return False
+        return f'{parsed.scheme}://{parsed.netloc}'.rstrip('/').lower()
+
+    @api.model
+    def _get_order_webhook_backends(self):
+        backends = self.search([
+            ('state', '=', 'connected'),
+            ('enable_order_webhook', '=', True),
+        ])
+        if backends:
+            return backends
+        return self.search([('state', '=', 'connected')])
+
+    @api.model
+    def _match_backend_by_store_url(self, backends, source_url):
+        normalized_source = self._normalize_store_url(source_url)
+        if not normalized_source:
+            return self.browse()
+        for backend in backends:
+            if self._normalize_store_url(backend.wc_url) == normalized_source:
+                return backend
+        return self.browse()
+
+    def _enqueue_order_import_webhook_job(self, order_id, push_stock_after_import=True):
+        self.ensure_one()
+        try:
+            order_id = int(order_id)
+        except (TypeError, ValueError) as exc:
+            raise UserError(f'ID de pedido inválido para webhook: {order_id}') from exc
+        self.env['wc.queue.job'].create({
+            'name': f'Webhook import order #{order_id}',
+            'model_name': self._name,
+            'record_id': self.id,
+            'action': 'import',
+            'priority': 1,
+            'data': json.dumps({
+                'method': '_webhook_import_order_by_id',
+                'args': [order_id],
+                'kwargs': {'push_stock_after_import': bool(push_stock_after_import)},
+            }),
+        })
+
+    def _webhook_import_order_by_id(self, order_id, push_stock_after_import=True):
+        self.ensure_one()
+        try:
+            normalized_order_id = int(order_id)
+        except (TypeError, ValueError) as exc:
+            raise UserError(f'ID de pedido inválido para importación webhook: {order_id}') from exc
+        wc_order = self._wc_get(f'orders/{normalized_order_id}')
+        order = self.env['sale.order']._process_wc_order(wc_order)
+        if not push_stock_after_import or not self.sync_stock:
+            return order
+
+        if not order.order_line:
+            return order
+        variants = order.order_line.mapped('product_id').filtered(lambda p: p.wc_variation_id)
+        for variant in variants:
+            variant.action_sync_to_wc()
+        return order
