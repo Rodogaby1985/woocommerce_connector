@@ -63,6 +63,7 @@ class ProductTemplate(models.Model):
         categories = []
         if self.categ_id:
             categories = [{'name': self.categ_id.name}]
+        product_type = self.wc_product_type or ('variable' if self.product_variant_count > 1 else 'simple')
 
         data = {
             'name': self.name,
@@ -72,16 +73,18 @@ class ProductTemplate(models.Model):
             'date_on_sale_from': self.wc_sale_date_from.isoformat() if self.wc_sale_date_from else None,
             'date_on_sale_to': self.wc_sale_date_to.isoformat() if self.wc_sale_date_to else None,
             'description': self.description_sale or self.description or '',
-            'stock_quantity': int(self.qty_available),
-            'manage_stock': True,
             'categories': categories,
-            'type': self.wc_product_type or ('variable' if self.product_variant_count > 1 else 'simple'),
+            'type': product_type,
         }
-        if data['type'] == 'variable':
+        if product_type == 'variable':
+            data['manage_stock'] = False
             attributes = []
             for line in self.attribute_line_ids:
                 attributes.append({'name': line.attribute_id.name, 'visible': True, 'variation': True})
             data['attributes'] = attributes
+        else:
+            data['stock_quantity'] = int(self.qty_available)
+            data['manage_stock'] = True
         return data
 
     def _process_wc_data(self, wc_data: Dict[str, Any]):

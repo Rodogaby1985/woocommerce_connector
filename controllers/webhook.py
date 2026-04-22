@@ -3,82 +3,96 @@ import hashlib
 import hmac
 import json
 import logging
-import threading
-import time
-from typing import Dict, List
+import secrets
 
-from odoo import http
+from odoo import fields, http
 from odoo.http import request
+from werkzeug.wrappers import Response
 
 _logger = logging.getLogger(__name__)
-_WEBHOOK_WINDOW_SECONDS = 60
-_WEBHOOK_MAX_PER_WINDOW = 120
-_webhook_hits: Dict[str, List[float]] = {}
-_webhook_lock = threading.Lock()
 
 
 class WooCommerceWebhook(http.Controller):
-    @http.route('/wc/webhook', type='json', auth='none', csrf=False, methods=['POST'])
-    def receive_webhook(self):
-        """Recibe webhooks de WooCommerce y encola trabajos asíncronos."""
-        backend = request.env['wc.backend'].sudo().search([], limit=1)
-        if not backend:
-            return {'status': 'ignored', 'message': 'Backend no configurado'}
-        if not backend.webhook_secret:
-            _logger.warning('Webhook WooCommerce rechazado: secreto no configurado')
-            return {'status': 'error', 'message': 'Webhook secret no configurado'}
+    def _json_response(self, payload, status=200):
+        return Response(
+            json.dumps(payload),
+            status=status,
+            content_type='application/json',
+        )
 
-        client_ip = request.httprequest.remote_addr or 'unknown'
-        now = time.time()
-        with _webhook_lock:
-            hits = [ts for ts in _webhook_hits.get(client_ip, []) if now - ts <= _WEBHOOK_WINDOW_SECONDS]
-            if len(hits) >= _WEBHOOK_MAX_PER_WINDOW:
-                _logger.warning('Webhook WooCommerce limitado por rate limit para IP %s', client_ip)
-                return {'status': 'error', 'message': 'Rate limit excedido'}
-            hits.append(now)
-            _webhook_hits[client_ip] = hits
+    @http.route(
+        ['/wc/webhook/<string:token>', '/wc/webhook'],
+        type='http',
+        auth='public',
+        csrf=False,
+        methods=['POST'],
+    )
+    def receive_webhook(self, token=None):
+        backend_model = request.env['wc.backend'].sudo()
+        backend = backend_model.search([], limit=1)
+        if not backend:
+            return self._json_response({'status': 'ignored', 'message': 'Backend no configurado'}, status=202)
+        backend._ensure_webhook_token()
+
+        if token:
+            token_backend = backend_model.search([('webhook_token', '=', token)], limit=1)
+            if not token_backend or not secrets.compare_digest(token_backend.webhook_token or '', token):
+                _logger.warning('Webhook WooCommerce rechazado por token inválido')
+                return self._json_response({'status': 'error', 'message': 'Token inválido'}, status=403)
+            backend = token_backend
+        else:
+            _logger.warning('Webhook legado /wc/webhook utilizado sin token (deprecado)')
 
         raw_body = request.httprequest.get_data() or b''
         signature = request.httprequest.headers.get('X-WC-Webhook-Signature')
         topic = request.httprequest.headers.get('X-WC-Webhook-Topic', '')
+        client_ip = request.httprequest.remote_addr or 'unknown'
 
-        if backend.webhook_secret:
-            digest = hmac.new(
-                backend.webhook_secret.encode('utf-8'),
-                raw_body,
-                hashlib.sha256,
-            ).digest()
-            expected = base64.b64encode(digest).decode('utf-8')
-            if not signature or not hmac.compare_digest(signature, expected):
-                _logger.warning('Webhook WooCommerce rechazado por firma inválida: %s', topic)
-                return {'status': 'error', 'message': 'Firma inválida'}
+        if not backend._check_webhook_rate_limit(client_ip=client_ip):
+            _logger.warning('Webhook WooCommerce limitado por rate limit para backend %s IP %s', backend.id, client_ip)
+            return self._json_response({'status': 'error', 'message': 'Rate limit excedido'}, status=429)
 
-        data = request.jsonrequest
-        if not data and raw_body:
+        if not backend.webhook_secret:
+            _logger.warning('Webhook WooCommerce rechazado: secreto no configurado')
+            backend.write({'webhook_last_error': 'Webhook secret no configurado'})
+            return self._json_response({'status': 'error', 'message': 'Webhook secret no configurado'}, status=400)
+
+        digest = hmac.new(
+            backend.webhook_secret.encode('utf-8'),
+            raw_body,
+            hashlib.sha256,
+        ).digest()
+        expected = base64.b64encode(digest).decode('utf-8')
+        if not signature or not hmac.compare_digest(signature, expected):
+            _logger.warning('Webhook WooCommerce rechazado por firma inválida: %s', topic)
+            backend.write({'webhook_last_error': 'Firma inválida'})
+            return self._json_response({'status': 'error', 'message': 'Firma inválida'}, status=403)
+
+        data = {}
+        if raw_body:
             try:
                 data = json.loads(raw_body.decode('utf-8'))
             except Exception:
                 data = {}
 
-        env = request.env
+        entity_id = data.get('id')
         try:
-            if topic in ('product.created', 'product.updated'):
-                product = env['product.template'].sudo().search([('wc_id', '=', data.get('id'))], limit=1)
-                if not product:
-                    product = env['product.template'].sudo().create({'name': data.get('name') or 'Producto WooCommerce'})
-                product._enqueue_wc_job(action='import', priority=5)
-            elif topic in ('order.created', 'order.updated'):
-                order = env['sale.order'].sudo().search([('wc_order_id', '=', data.get('id'))], limit=1)
-                if not order:
-                    partner = env['res.partner'].sudo()._get_or_create_from_wc({'email': data.get('billing', {}).get('email')})
-                    order = env['sale.order'].sudo().create({'partner_id': partner.id, 'wc_order_id': data.get('id')})
-                order._enqueue_wc_job(action='import', priority=1)
-            elif topic in ('customer.created', 'customer.updated'):
-                partner = env['res.partner'].sudo().search([('wc_customer_id', '=', data.get('id'))], limit=1)
-                if not partner:
-                    partner = env['res.partner'].sudo().create({'name': data.get('email') or 'Cliente WooCommerce'})
-                partner._enqueue_wc_job(action='import', priority=5)
-        except Exception:
-            _logger.exception('Error encolando webhook WooCommerce topic=%s', topic)
+            if topic in ('order.created', 'order.updated') and entity_id:
+                backend._enqueue_order_import_webhook_job(
+                    order_id=entity_id,
+                    push_stock_after_import=backend.webhook_push_stock_after_import,
+                )
+            elif topic in ('product.created', 'product.updated') and entity_id:
+                backend._enqueue_product_import_webhook_job(entity_id)
+            elif topic in ('customer.created', 'customer.updated') and entity_id:
+                backend._enqueue_customer_import_webhook_job(entity_id)
+        except Exception as exc:
+            _logger.exception('Error encolando webhook WooCommerce topic=%s id=%s', topic, entity_id)
+            backend.write({'webhook_last_error': str(exc)})
+            return self._json_response({'status': 'error', 'message': 'Error encolando webhook'}, status=500)
 
-        return {'status': 'ok'}
+        backend.write({
+            'webhook_last_received_at': fields.Datetime.now(),
+            'webhook_last_error': False,
+        })
+        return self._json_response({'status': 'ok'}, status=200)
