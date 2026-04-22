@@ -19,6 +19,11 @@ class SaleOrder(models.Model):
     wc_sync_date = fields.Datetime(string='Última sync WooCommerce')
     wc_stock_mismatch = fields.Boolean(string='Revisar stock', tracking=True)
     wc_stock_mismatch_note = fields.Text(string='Detalle inconsistencia de stock')
+    wc_reservation_picking_ids = fields.One2many(
+        'stock.picking',
+        'wc_quotation_order_id',
+        string='Reservas Woo en cotización',
+    )
 
     def _get_wc_backend(self):
         return self.env['wc.backend'].search([], limit=1)
@@ -68,40 +73,44 @@ class SaleOrder(models.Model):
         }
         if order:
             order.with_context(wc_no_sync=True).write(order_vals)
-            order.order_line.unlink()
+            should_rebuild_lines = order.state in ('draft', 'sent')
+            if should_rebuild_lines:
+                order.order_line.unlink()
         else:
             order = self.with_context(wc_no_sync=True).create(order_vals)
+            should_rebuild_lines = True
 
         mismatch_lines = []
-        for item in wc_order.get('line_items', []):
-            product = False
-            sku = item.get('sku')
-            if sku:
-                product = self.env['product.product'].search([('default_code', '=', sku)], limit=1)
-            if not product and item.get('variation_id'):
-                product = self.env['product.product'].search([('wc_variation_id', '=', item.get('variation_id'))], limit=1)
-            if not product and item.get('product_id'):
-                product = self.env['product.template'].search([('wc_id', '=', item.get('product_id'))], limit=1).product_variant_id
-            if not product:
-                continue
-            qty_ordered = float(item.get('quantity') or 1.0)
-            # Usamos qty_available porque el conector también lo utiliza para sincronizar stock real a WooCommerce.
-            qty_available = float(product.qty_available)
-            if qty_ordered > qty_available:
-                mismatch_lines.append({
-                    'product_name': item.get('name') or product.product_tmpl_id.name or product.display_name,
-                    'variant': product.display_name,
-                    'sku': product.default_code or sku or '-',
-                    'qty_ordered': qty_ordered,
-                    'qty_available': qty_available,
+        if should_rebuild_lines:
+            for item in wc_order.get('line_items', []):
+                product = False
+                sku = item.get('sku')
+                if sku:
+                    product = self.env['product.product'].search([('default_code', '=', sku)], limit=1)
+                if not product and item.get('variation_id'):
+                    product = self.env['product.product'].search([('wc_variation_id', '=', item.get('variation_id'))], limit=1)
+                if not product and item.get('product_id'):
+                    product = self.env['product.template'].search([('wc_id', '=', item.get('product_id'))], limit=1).product_variant_id
+                if not product:
+                    continue
+                qty_ordered = float(item.get('quantity') or 1.0)
+                # Usamos qty_available porque el conector también lo utiliza para sincronizar stock real a WooCommerce.
+                qty_available = float(product.qty_available)
+                if qty_ordered > qty_available:
+                    mismatch_lines.append({
+                        'product_name': item.get('name') or product.product_tmpl_id.name or product.display_name,
+                        'variant': product.display_name,
+                        'sku': product.default_code or sku or '-',
+                        'qty_ordered': qty_ordered,
+                        'qty_available': qty_available,
+                    })
+                self.env['sale.order.line'].create({
+                    'order_id': order.id,
+                    'product_id': product.id,
+                    'name': item.get('name') or product.display_name,
+                    'product_uom_qty': qty_ordered,
+                    'price_unit': float(item.get('price') or 0.0),
                 })
-            self.env['sale.order.line'].create({
-                'order_id': order.id,
-                'product_id': product.id,
-                'name': item.get('name') or product.display_name,
-                'product_uom_qty': qty_ordered,
-                'price_unit': float(item.get('price') or 0.0),
-            })
 
         mismatch_note = False
         if mismatch_lines:
@@ -117,12 +126,13 @@ class SaleOrder(models.Model):
 
         previous_note = order.wc_stock_mismatch_note or ''
         previous_flag = bool(order.wc_stock_mismatch)
-        order.with_context(wc_no_sync=True).write({
-            'wc_stock_mismatch': bool(mismatch_lines),
-            'wc_stock_mismatch_note': mismatch_note or False,
-        })
+        if should_rebuild_lines:
+            order.with_context(wc_no_sync=True).write({
+                'wc_stock_mismatch': bool(mismatch_lines),
+                'wc_stock_mismatch_note': mismatch_note or False,
+            })
 
-        if mismatch_lines and (not previous_flag or previous_note != mismatch_note):
+        if should_rebuild_lines and mismatch_lines and (not previous_flag or previous_note != mismatch_note):
             chatter_msg = (
                 f"Pedido Woo #{wc_order.get('id')} marcado para revisión de stock.\n"
                 f"{mismatch_note}"
@@ -139,18 +149,107 @@ class SaleOrder(models.Model):
                 backend._send_alert_email(email_subject, email_body)
 
         status = wc_order.get('status')
-        if order.wc_stock_mismatch:
+        if status in ('pending', 'on-hold') and order.state in ('draft', 'sent'):
+            order._ensure_wc_quotation_stock_reservation(backend=backend)
             return order
-        if status == 'processing' and order.state == 'draft':
+        if order.wc_stock_mismatch:
+            order._release_wc_quotation_stock_reservation()
+            return order
+        if status == 'processing' and order.state in ('draft', 'sent') and (not backend or backend.auto_confirm_processing_orders):
+            order._release_wc_quotation_stock_reservation()
             order.action_confirm()
         elif status == 'completed':
-            if order.state == 'draft':
+            order._release_wc_quotation_stock_reservation()
+            if order.state in ('draft', 'sent') and (not backend or backend.auto_confirm_processing_orders):
                 order.action_confirm()
-            if order.state == 'sale':
+            if order.state == 'sale' and (not backend or backend.auto_complete_completed_orders):
                 order._action_done()
-        elif status == 'cancelled' and order.state not in ('cancel', 'done'):
-            order.action_cancel()
+        elif status == 'cancelled':
+            order._release_wc_quotation_stock_reservation()
+            if order.state in ('draft', 'sent') and backend and backend.cancelled_order_action == 'cancel_quote':
+                order.action_cancel()
         return order
+
+    def _get_wc_reservation_picking_type(self):
+        self.ensure_one()
+        warehouse = self.warehouse_id or self.env['stock.warehouse'].search([], limit=1)
+        return warehouse.out_type_id if warehouse else self.env['stock.picking.type']
+
+    def _build_wc_reservation_move_vals(self, picking, line):
+        self.ensure_one()
+        return {
+            'name': line.name or line.product_id.display_name,
+            'product_id': line.product_id.id,
+            'product_uom': line.product_uom.id,
+            'product_uom_qty': line.product_uom_qty,
+            'location_id': picking.location_id.id,
+            'location_dest_id': picking.location_dest_id.id,
+            'company_id': self.company_id.id,
+            'picking_id': picking.id,
+            'state': 'draft',
+        }
+
+    def _ensure_wc_quotation_stock_reservation(self, backend=None):
+        self.ensure_one()
+        backend = backend or self._get_wc_backend()
+        if backend and not backend.reserve_stock_on_pending_quote:
+            return
+        if self.state not in ('draft', 'sent'):
+            return
+        reservable_lines = self.order_line.filtered(
+            lambda line: line.product_id and line.product_id.type == 'product' and line.product_uom_qty > 0
+        )
+        if not reservable_lines:
+            return
+        picking_type = self._get_wc_reservation_picking_type()
+        if not picking_type:
+            raise UserError('No se encontró tipo de operación para reservar stock en cotización Woo.')
+        source_location = picking_type.default_location_src_id
+        dest_location = self.partner_shipping_id.property_stock_customer or picking_type.default_location_dest_id
+        if not source_location or not dest_location:
+            raise UserError('Faltan ubicaciones para crear reserva de stock en cotización Woo.')
+        self._release_wc_quotation_stock_reservation()
+        picking = self.env['stock.picking'].create({
+            'picking_type_id': picking_type.id,
+            'location_id': source_location.id,
+            'location_dest_id': dest_location.id,
+            'partner_id': self.partner_shipping_id.id or self.partner_id.id,
+            'origin': self.name,
+            'company_id': self.company_id.id,
+            'scheduled_date': fields.Datetime.now(),
+            'wc_quotation_order_id': self.id,
+            'wc_is_quotation_reservation': True,
+        })
+        for line in reservable_lines:
+            self.env['stock.move'].create(self._build_wc_reservation_move_vals(picking=picking, line=line))
+        if picking.state == 'draft':
+            picking.action_confirm()
+        picking.action_assign()
+        not_reserved_moves = picking.move_ids_without_package.filtered(
+            lambda move: move.state not in ('assigned', 'done', 'cancel')
+        )
+        if not_reserved_moves and backend:
+            backend._send_alert_email(
+                subject=f'[WooCommerce][{self.env.cr.dbname}] Reserva parcial en cotización {self.name}',
+                body=(
+                    f'Backend: {backend.display_name}\n'
+                    f'Pedido Odoo: {self.name}\n'
+                    f'Woo order id: {self.wc_order_id}\n'
+                    f'No se pudo reservar completamente el stock para todas las líneas.'
+                ),
+            )
+
+    def _release_wc_quotation_stock_reservation(self):
+        for order in self:
+            pickings = order.wc_reservation_picking_ids.filtered(lambda p: p.state not in ('done', 'cancel'))
+            if not pickings:
+                continue
+            for picking in pickings:
+                moves = picking.move_ids_without_package.filtered(lambda move: move.state not in ('done', 'cancel'))
+                if moves:
+                    moves._do_unreserve()
+                    moves._action_cancel()
+                picking.action_cancel()
 
     def action_sync_status_to_wc(self):
         """Envía estado de Odoo hacia WooCommerce."""

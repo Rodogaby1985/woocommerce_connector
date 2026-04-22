@@ -3,6 +3,7 @@ import logging
 import re
 import threading
 import time
+from datetime import timedelta, timezone
 from html import escape
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
@@ -27,6 +28,7 @@ class WcBackend(models.Model):
     wc_consumer_key = fields.Char(string='Consumer Key', required=True)
     wc_consumer_secret = fields.Char(string='Consumer Secret', required=True)
     enable_order_webhook = fields.Boolean(string='Activar webhook de pedidos', default=False)
+    enable_order_updated_webhook = fields.Boolean(string='Activar webhook order.updated', default=False)
     webhook_secret = fields.Char(string='Secreto Webhook')
     webhook_push_stock_after_import = fields.Boolean(
         string='Actualizar stock tras importar pedido (webhook)',
@@ -34,6 +36,31 @@ class WcBackend(models.Model):
     )
     webhook_last_received_at = fields.Datetime(string='Último webhook recibido', readonly=True)
     webhook_last_error = fields.Text(string='Último error de webhook', readonly=True)
+    reserve_stock_on_pending_quote = fields.Boolean(
+        string='Reservar stock en cotizaciones pending/on-hold',
+        default=True,
+    )
+    auto_confirm_processing_orders = fields.Boolean(
+        string='Confirmar automáticamente cuando Woo pasa a processing',
+        default=True,
+    )
+    auto_complete_completed_orders = fields.Boolean(
+        string='Marcar como hecho cuando Woo pasa a completed',
+        default=True,
+    )
+    cancelled_order_action = fields.Selection([
+        ('keep_quote', 'Liberar reserva y mantener cotización'),
+        ('cancel_quote', 'Liberar reserva y cancelar cotización segura'),
+    ], string='Acción para cancelled', default='keep_quote', required=True)
+    enable_order_catchup = fields.Boolean(
+        string='Activar reconciliación periódica de pedidos',
+        default=True,
+    )
+    order_catchup_interval_minutes = fields.Integer(
+        string='Intervalo de reconciliación (minutos)',
+        default=5,
+    )
+    order_catchup_last_run = fields.Datetime(string='Última reconciliación de pedidos', readonly=True)
     price_strategy = fields.Selection([
         ('custom_fields', 'Campos personalizados'),
         ('pricelist', 'Lista de precios'),
@@ -165,6 +192,22 @@ class WcBackend(models.Model):
             if backend:
                 backend.write({'state': 'error', 'last_error': str(exc)})
 
+    @api.model
+    def _cron_reconcile_orders(self):
+        """Reconciliar pedidos Woo modificados desde la última ejecución."""
+        now = fields.Datetime.now()
+        backends = self.search([
+            ('state', '=', 'connected'),
+            ('enable_order_catchup', '=', True),
+            ('sync_orders', '=', True),
+        ])
+        for backend in backends:
+            if backend.order_catchup_last_run:
+                delta = now - backend.order_catchup_last_run
+                if delta < timedelta(minutes=max(backend.order_catchup_interval_minutes or 1, 1)):
+                    continue
+            backend._reconcile_orders_since_last_run()
+
     def _send_alert_email(self, subject: str, body: str):
         """Envía alertas por email según configuración del backend."""
         self.ensure_one()
@@ -235,6 +278,13 @@ class WcBackend(models.Model):
         return self.search([('state', '=', 'connected')])
 
     @api.model
+    def _get_order_updated_webhook_backends(self):
+        return self.search([
+            ('state', '=', 'connected'),
+            ('enable_order_updated_webhook', '=', True),
+        ])
+
+    @api.model
     def _match_backend_by_store_url(self, backends, source_url):
         normalized_source = self._normalize_store_url(source_url)
         if not normalized_source:
@@ -244,7 +294,7 @@ class WcBackend(models.Model):
                 return backend
         return self.browse()
 
-    def _enqueue_order_import_webhook_job(self, order_id, push_stock_after_import=True):
+    def _enqueue_order_sync_webhook_job(self, order_id, push_stock_after_import=True):
         self.ensure_one()
         try:
             order_id = int(order_id)
@@ -263,6 +313,13 @@ class WcBackend(models.Model):
             }),
         })
 
+    def _enqueue_order_import_webhook_job(self, order_id, push_stock_after_import=True):
+        self.ensure_one()
+        return self._enqueue_order_sync_webhook_job(
+            order_id=order_id,
+            push_stock_after_import=push_stock_after_import,
+        )
+
     def _webhook_import_order_by_id(self, order_id, push_stock_after_import=True):
         self.ensure_one()
         try:
@@ -280,3 +337,55 @@ class WcBackend(models.Model):
         for variant in variants:
             variant.action_sync_to_wc()
         return order
+
+    def _reconcile_orders_since_last_run(self):
+        self.ensure_one()
+        started_at = fields.Datetime.now()
+        since = self.order_catchup_last_run or (started_at - timedelta(days=1))
+        try:
+            orders = self._fetch_orders_modified_since(since)
+            for wc_order in orders:
+                self.env['sale.order']._process_wc_order(wc_order)
+            self.write({
+                'order_catchup_last_run': started_at,
+                'last_error': False,
+            })
+        except Exception as exc:
+            _logger.exception('Error reconciliando pedidos WooCommerce para backend %s', self.display_name)
+            message = str(exc)
+            self.write({'last_error': message})
+            self._send_alert_email(
+                subject=f'[WooCommerce][{self.env.cr.dbname}] Error cron reconciliación pedidos',
+                body=(
+                    f'Backend: {self.display_name}\n'
+                    f'Desde: {since}\n'
+                    f'Error: {message}'
+                ),
+            )
+
+    def _fetch_orders_modified_since(self, since_dt):
+        self.ensure_one()
+        if not since_dt:
+            return []
+        since_utc = since_dt.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+        page = 1
+        per_page = min(max(self.batch_size or 50, 1), 100)
+        statuses = 'pending,on-hold,processing,completed,cancelled'
+        all_orders = []
+        while True:
+            params = {
+                'per_page': per_page,
+                'page': page,
+                'status': statuses,
+                'orderby': 'modified',
+                'order': 'asc',
+                'modified_after': since_utc,
+            }
+            page_orders = self._wc_get('orders', params=params)
+            if not page_orders:
+                break
+            all_orders.extend(page_orders)
+            if len(page_orders) < per_page:
+                break
+            page += 1
+        return all_orders
