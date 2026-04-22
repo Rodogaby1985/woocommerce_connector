@@ -1,6 +1,6 @@
 {
     'name': 'WooCommerce Connector',
-    'version': '18.0.1.0.0',
+    'version': '18.0.2.0.0',
     'category': 'Sales',
     'summary': 'Conector bidireccional WooCommerce ↔ Odoo',
     'description': 'Sincroniza productos, variantes, stock, precios, pedidos y clientes entre WooCommerce y Odoo en tiempo real.',
@@ -13,7 +13,6 @@
         'security/ir.model.access.csv',
         'data/cron_data.xml',
         'data/queue_data.xml',
-        'data/wc_data.xml',
         'views/wc_backend_views.xml',
         'views/product_template_views.xml',
         'views/product_product_views.xml',
@@ -24,6 +23,9 @@
         'wizards/wc_initial_sync.xml',
         'wizards/wc_price_update.xml',
         'views/menu.xml',
+    ],
+    'demo': [
+        'demo/wc_data.xml',
     ],
     'external_dependencies': {
         'python': ['requests'],

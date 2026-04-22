@@ -31,4 +31,13 @@
         <field name="active">True</field>
         <field name="priority">2</field>
     </record>
+    <record id="cron_wc_cleanup_webhook_log" model="ir.cron">
+        <field name="name">WooCommerce: Limpieza de logs webhook</field>
+        <field name="model_id" ref="model_wc_webhook_log"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup_old_logs()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active">True</field>
+    </record>
 </odoo>

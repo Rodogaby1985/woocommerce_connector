@@ -3,7 +3,8 @@ import logging
 import re
 import threading
 import time
-from datetime import timedelta, timezone
+import secrets
+from datetime import timedelta
 from html import escape
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
@@ -14,8 +15,8 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
-_last_call_times: Dict[int, float] = {}
-_rate_lock = threading.Lock()
+_MAX_WC_REQUEST_ATTEMPTS = 3
+_DEFAULT_RETRY_AFTER_SECONDS = 30
 _EMAIL_PATTERN = re.compile(r'^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$')
 _DEFAULT_CATCHUP_BATCH_SIZE = 50
 _MIN_CATCHUP_BATCH_SIZE = 1
@@ -29,11 +30,17 @@ class WcBackend(models.Model):
 
     name = fields.Char(string='Nombre', required=True, default='WooCommerce Principal')
     wc_url = fields.Char(string='URL WooCommerce', required=True)
-    wc_consumer_key = fields.Char(string='Consumer Key', required=True)
-    wc_consumer_secret = fields.Char(string='Consumer Secret', required=True)
+    wc_consumer_key = fields.Char(string='Consumer Key', required=True, password=True)
+    wc_consumer_secret = fields.Char(string='Consumer Secret', required=True, password=True)
     enable_order_webhook = fields.Boolean(string='Activar webhook de pedidos', default=False)
     enable_order_updated_webhook = fields.Boolean(string='Activar webhook order.updated', default=False)
-    webhook_secret = fields.Char(string='Secreto Webhook')
+    webhook_secret = fields.Char(string='Secreto Webhook', password=True)
+    webhook_token = fields.Char(
+        string='Token Webhook',
+        copy=False,
+        readonly=True,
+        default=lambda self: secrets.token_urlsafe(32),
+    )
     webhook_push_stock_after_import = fields.Boolean(
         string='Actualizar stock tras importar pedido (webhook)',
         default=True,
@@ -79,6 +86,7 @@ class WcBackend(models.Model):
     error_notification_emails = fields.Text(string='Emails de notificación de error')
     batch_size = fields.Integer(string='Tamaño de lote', default=50)
     rate_limit = fields.Integer(string='Llamadas por minuto', default=60)
+    wc_next_call_time = fields.Datetime(string='Próxima llamada API Woo')
     state = fields.Selection([
         ('draft', 'Borrador'),
         ('connected', 'Conectado'),
@@ -94,6 +102,84 @@ class WcBackend(models.Model):
     pending_job_count = fields.Integer(string='Trabajos pendientes', compute='_compute_dashboard_stats')
     error_job_count = fields.Integer(string='Trabajos en error', compute='_compute_dashboard_stats')
     month_order_count = fields.Integer(string='Pedidos del mes', compute='_compute_dashboard_stats')
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if not vals.get('webhook_token'):
+                vals['webhook_token'] = secrets.token_urlsafe(32)
+        return super().create(vals_list)
+
+    def action_regenerate_webhook_token(self):
+        for backend in self:
+            backend.write({'webhook_token': secrets.token_urlsafe(32)})
+
+    def _ensure_webhook_token(self):
+        for backend in self.filtered(lambda b: not b.webhook_token):
+            backend.write({'webhook_token': secrets.token_urlsafe(32)})
+
+    def _get_rate_limit_interval_seconds(self) -> float:
+        self.ensure_one()
+        return 60.0 / float(self.rate_limit or 60)
+
+    def _reserve_wc_rate_limit_slot(self):
+        self.ensure_one()
+        now = fields.Datetime.now()
+        min_interval = self._get_rate_limit_interval_seconds()
+        self.env.cr.execute(
+            'SELECT wc_next_call_time FROM wc_backend WHERE id = %s FOR UPDATE',
+            [self.id],
+        )
+        row = self.env.cr.fetchone()
+        next_call_time = row and row[0] or False
+        if next_call_time and next_call_time > now:
+            wait_seconds = max(1, int((next_call_time - now).total_seconds()))
+            raise UserError(
+                f'Rate limit de WooCommerce activo. Reintentar en {wait_seconds} segundo(s).'
+            )
+        self.write({'wc_next_call_time': now + timedelta(seconds=min_interval)})
+
+    def _set_wc_next_call_time(self, delay_seconds: int):
+        self.ensure_one()
+        delay = max(int(delay_seconds or 0), 1)
+        self.write({'wc_next_call_time': fields.Datetime.now() + timedelta(seconds=delay)})
+
+    def _parse_retry_after(self, response):
+        retry_header = response.headers.get('Retry-After')
+        if not retry_header:
+            return _DEFAULT_RETRY_AFTER_SECONDS
+        try:
+            retry_after = int(retry_header)
+            return max(retry_after, 1)
+        except (TypeError, ValueError):
+            return _DEFAULT_RETRY_AFTER_SECONDS
+
+    def _check_webhook_rate_limit(
+        self,
+        client_ip: str,
+        window_seconds: int = 60,
+        max_per_window: int = 120,
+    ) -> bool:
+        self.ensure_one()
+        now = fields.Datetime.now()
+        threshold = now - timedelta(seconds=window_seconds)
+        self.env.cr.execute(
+            'SELECT id FROM wc_backend WHERE id = %s FOR UPDATE',
+            [self.id],
+        )
+        log_model = self.env['wc.webhook.log'].sudo()
+        recent_count = log_model.search_count([
+            ('backend_id', '=', self.id),
+            ('client_ip', '=', client_ip),
+            ('create_date', '>=', threshold),
+        ])
+        if recent_count >= max_per_window:
+            return False
+        log_model.create({
+            'backend_id': self.id,
+            'client_ip': client_ip,
+        })
+        return True
 
     def _compute_dashboard_stats(self):
         month_start = fields.Datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -124,34 +210,57 @@ class WcBackend(models.Model):
                 raise UserError(f'No se pudo conectar a WooCommerce: {exc}')
 
     def _get_wc_api(self, endpoint: str, method: str = 'GET', data: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
-        """Realiza llamada a la API v3 de WooCommerce respetando el rate limit."""
+        """Realiza llamada a la API v3 de WooCommerce con control de rate limit/reintentos."""
         self.ensure_one()
         if not self.wc_url:
             raise UserError('Debe configurar la URL de WooCommerce.')
 
-        with _rate_lock:
-            min_interval = 60.0 / float(self.rate_limit or 60)
-            backend_key = self.id or 0
-            last_call = _last_call_times.get(backend_key, 0.0)
-            elapsed = time.time() - last_call
-            if elapsed < min_interval:
-                time.sleep(min_interval - elapsed)
-            _last_call_times[backend_key] = time.time()
-
         url = f"{self.wc_url.rstrip('/')}/wp-json/wc/v3/{endpoint.lstrip('/')}"
-        response = requests.request(
-            method=method,
-            url=url,
-            auth=(self.wc_consumer_key, self.wc_consumer_secret),
-            json=data,
-            params=params,
-            timeout=30,
-        )
-        if not response.ok:
-            raise UserError(f'Error WooCommerce API [{response.status_code}]: {response.text[:400]}')
-        if not response.text:
-            return {}
-        return response.json()
+        last_exception = None
+        for attempt in range(1, _MAX_WC_REQUEST_ATTEMPTS + 1):
+            try:
+                self._reserve_wc_rate_limit_slot()
+            except UserError as exc:
+                last_exception = exc
+                if attempt < _MAX_WC_REQUEST_ATTEMPTS:
+                    continue
+                raise
+            try:
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    auth=(self.wc_consumer_key, self.wc_consumer_secret),
+                    json=data,
+                    params=params,
+                    timeout=30,
+                )
+            except requests.RequestException as exc:
+                last_exception = exc
+                if attempt < _MAX_WC_REQUEST_ATTEMPTS:
+                    continue
+                raise UserError(f'Error de red WooCommerce: {exc}') from exc
+
+            if response.status_code == 429:
+                retry_after = self._parse_retry_after(response)
+                self._set_wc_next_call_time(retry_after)
+                last_exception = UserError(
+                    f'WooCommerce devolvió 429 (rate limit). Reintentar en {retry_after} segundo(s).'
+                )
+                if attempt < _MAX_WC_REQUEST_ATTEMPTS:
+                    continue
+                raise last_exception
+            if response.status_code >= 500 and attempt < _MAX_WC_REQUEST_ATTEMPTS:
+                continue
+            if not response.ok:
+                raise UserError(f'Error WooCommerce API [{response.status_code}]: {response.text[:400]}')
+            if not response.text:
+                return {}
+            try:
+                return response.json()
+            except ValueError as exc:
+                raise UserError('Respuesta inválida de WooCommerce (JSON inválido).') from exc
+
+        raise UserError(f'No se pudo completar la llamada a WooCommerce: {last_exception}')
 
     def _wc_get(self, endpoint: str, params: Optional[Dict[str, Any]] = None):
         return self._get_wc_api(endpoint=endpoint, method='GET', params=params)
@@ -311,16 +420,59 @@ class WcBackend(models.Model):
             order_id = int(order_id)
         except (TypeError, ValueError) as exc:
             raise UserError(f'ID de pedido inválido para webhook: {order_id}') from exc
+        self._enqueue_webhook_import_job(
+            name=f'Webhook import order #{order_id}',
+            method_name='_webhook_import_order_by_id',
+            args=[order_id],
+            kwargs={'push_stock_after_import': bool(push_stock_after_import)},
+            priority=1,
+        )
+
+    def _enqueue_product_import_webhook_job(self, wc_product_id):
+        self.ensure_one()
+        try:
+            wc_product_id = int(wc_product_id)
+        except (TypeError, ValueError) as exc:
+            raise UserError(f'ID de producto inválido para webhook: {wc_product_id}') from exc
+        self._enqueue_webhook_import_job(
+            name=f'Webhook import product #{wc_product_id}',
+            method_name='_webhook_import_product_by_id',
+            args=[wc_product_id],
+            priority=5,
+        )
+
+    def _enqueue_customer_import_webhook_job(self, wc_customer_id):
+        self.ensure_one()
+        try:
+            wc_customer_id = int(wc_customer_id)
+        except (TypeError, ValueError) as exc:
+            raise UserError(f'ID de cliente inválido para webhook: {wc_customer_id}') from exc
+        self._enqueue_webhook_import_job(
+            name=f'Webhook import customer #{wc_customer_id}',
+            method_name='_webhook_import_customer_by_id',
+            args=[wc_customer_id],
+            priority=5,
+        )
+
+    def _enqueue_webhook_import_job(
+        self,
+        name: str,
+        method_name: str,
+        args: Optional[List[Any]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
+        priority: int = 5,
+    ):
+        self.ensure_one()
         self.env['wc.queue.job'].create({
-            'name': f'Webhook import order #{order_id}',
+            'name': name,
             'model_name': self._name,
             'record_id': self.id,
             'action': 'import',
-            'priority': 1,
+            'priority': priority,
             'data': json.dumps({
-                'method': '_webhook_import_order_by_id',
-                'args': [order_id],
-                'kwargs': {'push_stock_after_import': bool(push_stock_after_import)},
+                'method': method_name,
+                'args': args or [],
+                'kwargs': kwargs or {},
             }),
         })
 
