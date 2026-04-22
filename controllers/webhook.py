@@ -89,7 +89,7 @@ class WooCommerceWebhook(http.Controller):
         except Exception as exc:
             _logger.exception('Error encolando webhook WooCommerce topic=%s id=%s', topic, entity_id)
             backend.write({'webhook_last_error': str(exc)})
-            return self._json_response({'status': 'error', 'message': 'Error encolando webhook'}, status=202)
+            return self._json_response({'status': 'error', 'message': 'Error encolando webhook'}, status=500)
 
         backend.write({
             'webhook_last_received_at': fields.Datetime.now(),

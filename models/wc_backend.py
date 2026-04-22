@@ -101,9 +101,7 @@ class WcBackend(models.Model):
         row = self.env.cr.fetchone()
         next_call_time = row and row[0] or False
         if next_call_time and next_call_time > now:
-            wait_seconds = int((next_call_time - now).total_seconds())
-            if wait_seconds < 1:
-                wait_seconds = 1
+            wait_seconds = max(1, int((next_call_time - now).total_seconds()))
             raise UserError(
                 f'Rate limit de WooCommerce activo. Reintentar en {wait_seconds} segundo(s).'
             )
@@ -182,7 +180,13 @@ class WcBackend(models.Model):
         url = f"{self.wc_url.rstrip('/')}/wp-json/wc/v3/{endpoint.lstrip('/')}"
         last_exception = None
         for attempt in range(1, _MAX_WC_REQUEST_ATTEMPTS + 1):
-            self._reserve_wc_rate_limit_slot()
+            try:
+                self._reserve_wc_rate_limit_slot()
+            except UserError as exc:
+                last_exception = exc
+                if attempt < _MAX_WC_REQUEST_ATTEMPTS:
+                    continue
+                raise
             try:
                 response = requests.request(
                     method=method,
@@ -201,11 +205,12 @@ class WcBackend(models.Model):
             if response.status_code == 429:
                 retry_after = self._parse_retry_after(response)
                 self._set_wc_next_call_time(retry_after)
-                if attempt < _MAX_WC_REQUEST_ATTEMPTS and retry_after <= 1:
-                    continue
-                raise UserError(
+                last_exception = UserError(
                     f'WooCommerce devolvió 429 (rate limit). Reintentar en {retry_after} segundo(s).'
                 )
+                if attempt < _MAX_WC_REQUEST_ATTEMPTS:
+                    continue
+                raise last_exception
             if response.status_code >= 500 and attempt < _MAX_WC_REQUEST_ATTEMPTS:
                 continue
             if not response.ok:

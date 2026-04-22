@@ -210,12 +210,12 @@ class WcQueueJob(models.Model):
     def _auto_cleanup(self):
         """Elimina trabajos completados o cancelados con más de 7 días."""
         threshold = fields.Datetime.now() - timedelta(days=7)
-        old_jobs = self.search([
-            ('state', 'in', ['done', 'cancelled']),
-            '|',
-            ('date_done', '<', threshold),
-            ('date_processed', '<', threshold),
-        ])
+        old_jobs = self.search([('state', 'in', ['done', 'cancelled'])]).filtered(
+            lambda job: (
+                (job.date_done and job.date_done < threshold)
+                or (not job.date_done and job.date_processed and job.date_processed < threshold)
+            )
+        )
         old_jobs.unlink()
 
     def action_retry(self):
