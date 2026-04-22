@@ -43,7 +43,13 @@ class WooCommerceOrderWebhook(http.Controller):
                 break
         return verified_backend
 
-    def _receive_order_event(self, event_label, backend_fetch_method):
+    def _receive_order_event(self, event_label, backend_fetch_method_name):
+        """Validar webhook de pedido y encolar sincronización por order id.
+
+        :param event_label: etiqueta del evento (ej. order.created / order.updated)
+        :param backend_fetch_method_name: método del modelo wc.backend para obtener backends elegibles
+        :return: HTTP response con estado Accepted/Forbidden/Invalid payload
+        """
         raw_body = request.httprequest.get_data() or b''
         signature = request.httprequest.headers.get('X-WC-Webhook-Signature')
         try:
@@ -54,7 +60,11 @@ class WooCommerceOrderWebhook(http.Controller):
 
         source_url = request.httprequest.headers.get('X-WC-Webhook-Source') or self._extract_source_url(payload)
         backend_model = request.env['wc.backend'].sudo()
-        backends = getattr(backend_model, backend_fetch_method)()
+        fetch_method = getattr(backend_model, backend_fetch_method_name, None)
+        if not callable(fetch_method):
+            _logger.error('Webhook %s ignorado: método de backend inválido %s', event_label, backend_fetch_method_name)
+            return Response('Server error', status=500)
+        backends = fetch_method()
         if not backends:
             _logger.info('Webhook %s ignorado: no hay backend conectado', event_label)
             return Response('Ignored', status=202)

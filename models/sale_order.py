@@ -7,6 +7,9 @@ from odoo import fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
+_QUOTATION_STATES = ('draft', 'sent')
+_RESERVATION_FINAL_STATES = ('done', 'cancel')
+_RESERVATION_NON_PENDING_STATES = ('assigned',) + _RESERVATION_FINAL_STATES
 
 
 class SaleOrder(models.Model):
@@ -73,15 +76,15 @@ class SaleOrder(models.Model):
         }
         if order:
             order.with_context(wc_no_sync=True).write(order_vals)
-            should_rebuild_lines = order.state in ('draft', 'sent')
-            if should_rebuild_lines:
+            can_rebuild_lines = order.state in _QUOTATION_STATES
+            if can_rebuild_lines:
                 order.order_line.unlink()
         else:
             order = self.with_context(wc_no_sync=True).create(order_vals)
-            should_rebuild_lines = True
+            can_rebuild_lines = True
 
         mismatch_lines = []
-        if should_rebuild_lines:
+        if can_rebuild_lines:
             for item in wc_order.get('line_items', []):
                 product = False
                 sku = item.get('sku')
@@ -126,13 +129,13 @@ class SaleOrder(models.Model):
 
         previous_note = order.wc_stock_mismatch_note or ''
         previous_flag = bool(order.wc_stock_mismatch)
-        if should_rebuild_lines:
+        if can_rebuild_lines:
             order.with_context(wc_no_sync=True).write({
                 'wc_stock_mismatch': bool(mismatch_lines),
                 'wc_stock_mismatch_note': mismatch_note or False,
             })
 
-        if should_rebuild_lines and mismatch_lines and (not previous_flag or previous_note != mismatch_note):
+        if can_rebuild_lines and mismatch_lines and (not previous_flag or previous_note != mismatch_note):
             chatter_msg = (
                 f"Pedido Woo #{wc_order.get('id')} marcado para revisión de stock.\n"
                 f"{mismatch_note}"
@@ -149,24 +152,24 @@ class SaleOrder(models.Model):
                 backend._send_alert_email(email_subject, email_body)
 
         status = wc_order.get('status')
-        if status in ('pending', 'on-hold') and order.state in ('draft', 'sent'):
-            order._ensure_wc_quotation_stock_reservation(backend=backend)
-            return order
+        should_auto_confirm = order.state in _QUOTATION_STATES and order._wc_should_auto_confirm(backend)
         if order.wc_stock_mismatch:
             order._release_wc_quotation_stock_reservation()
             return order
-        if status == 'processing' and order.state in ('draft', 'sent') and (not backend or backend.auto_confirm_processing_orders):
+        if status in ('pending', 'on-hold') and order.state in _QUOTATION_STATES:
+            order._ensure_wc_quotation_stock_reservation(backend=backend)
+        elif status == 'processing' and should_auto_confirm:
             order._release_wc_quotation_stock_reservation()
             order.action_confirm()
         elif status == 'completed':
             order._release_wc_quotation_stock_reservation()
-            if order.state in ('draft', 'sent') and (not backend or backend.auto_confirm_processing_orders):
+            if should_auto_confirm:
                 order.action_confirm()
             if order.state == 'sale' and (not backend or backend.auto_complete_completed_orders):
                 order._action_done()
         elif status == 'cancelled':
             order._release_wc_quotation_stock_reservation()
-            if order.state in ('draft', 'sent') and backend and backend.cancelled_order_action == 'cancel_quote':
+            if order.state in _QUOTATION_STATES and backend and backend.cancelled_order_action == 'cancel_quote':
                 order.action_cancel()
         return order
 
@@ -189,25 +192,41 @@ class SaleOrder(models.Model):
             'state': 'draft',
         }
 
+    def _wc_should_auto_confirm(self, backend):
+        return not backend or backend.auto_confirm_processing_orders
+
     def _ensure_wc_quotation_stock_reservation(self, backend=None):
+        """Crear y reservar picking de stock para una cotización Woo pending/on-hold.
+
+        Reemplaza reservas previas activas de la misma cotización para mantener idempotencia.
+        Si no logra reservar todas las líneas, envía alerta por email (si está habilitado).
+        """
         self.ensure_one()
         backend = backend or self._get_wc_backend()
         if backend and not backend.reserve_stock_on_pending_quote:
             return
-        if self.state not in ('draft', 'sent'):
+        if self.state not in _QUOTATION_STATES:
             return
         reservable_lines = self.order_line.filtered(
             lambda line: line.product_id and line.product_id.type == 'product' and line.product_uom_qty > 0
         )
         if not reservable_lines:
             return
+        warehouse = self.warehouse_id or self.env['stock.warehouse'].search([], limit=1)
         picking_type = self._get_wc_reservation_picking_type()
         if not picking_type:
-            raise UserError('No se encontró tipo de operación para reservar stock en cotización Woo.')
+            warehouse_name = warehouse.display_name if warehouse else 'Ninguno'
+            raise UserError(
+                f'No se encontró tipo de operación de salida para el almacén {warehouse_name}. '
+                'Revise la configuración del almacén.'
+            )
         source_location = picking_type.default_location_src_id
         dest_location = self.partner_shipping_id.property_stock_customer or picking_type.default_location_dest_id
         if not source_location or not dest_location:
-            raise UserError('Faltan ubicaciones para crear reserva de stock en cotización Woo.')
+            raise UserError(
+                f'Falta ubicación de origen o destino en el tipo de operación {picking_type.display_name}. '
+                'Revise la configuración de ubicaciones.'
+            )
         self._release_wc_quotation_stock_reservation()
         picking = self.env['stock.picking'].create({
             'picking_type_id': picking_type.id,
@@ -225,10 +244,10 @@ class SaleOrder(models.Model):
         if picking.state == 'draft':
             picking.action_confirm()
         picking.action_assign()
-        not_reserved_moves = picking.move_ids_without_package.filtered(
-            lambda move: move.state not in ('assigned', 'done', 'cancel')
+        pending_reservation_moves = picking.move_ids_without_package.filtered(
+            lambda move: move.state not in _RESERVATION_NON_PENDING_STATES
         )
-        if not_reserved_moves and backend:
+        if pending_reservation_moves and backend:
             backend._send_alert_email(
                 subject=f'[WooCommerce][{self.env.cr.dbname}] Reserva parcial en cotización {self.name}',
                 body=(
@@ -241,11 +260,11 @@ class SaleOrder(models.Model):
 
     def _release_wc_quotation_stock_reservation(self):
         for order in self:
-            pickings = order.wc_reservation_picking_ids.filtered(lambda p: p.state not in ('done', 'cancel'))
+            pickings = order.wc_reservation_picking_ids.filtered(lambda p: p.state not in _RESERVATION_FINAL_STATES)
             if not pickings:
                 continue
             for picking in pickings:
-                moves = picking.move_ids_without_package.filtered(lambda move: move.state not in ('done', 'cancel'))
+                moves = picking.move_ids_without_package.filtered(lambda move: move.state not in _RESERVATION_FINAL_STATES)
                 if moves:
                     moves._do_unreserve()
                     moves._action_cancel()

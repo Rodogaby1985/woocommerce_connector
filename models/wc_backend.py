@@ -11,12 +11,16 @@ from urllib.parse import urlparse
 import requests
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
 _last_call_times: Dict[int, float] = {}
 _rate_lock = threading.Lock()
 _EMAIL_PATTERN = re.compile(r'^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$')
+_DEFAULT_CATCHUP_BATCH_SIZE = 50
+_MIN_CATCHUP_BATCH_SIZE = 1
+_MAX_CATCHUP_BATCH_SIZE = 100
+_RECONCILE_ORDER_STATUSES = 'pending,on-hold,processing,completed,cancelled'
 
 
 class WcBackend(models.Model):
@@ -101,6 +105,12 @@ class WcBackend(models.Model):
             backend.pending_job_count = self.env['wc.queue.job'].search_count([('state', 'in', ['pending', 'processing'])])
             backend.error_job_count = self.env['wc.queue.job'].search_count([('state', '=', 'error')])
             backend.month_order_count = self.env['sale.order'].search_count([('date_order', '>=', month_start)])
+
+    @api.constrains('order_catchup_interval_minutes')
+    def _check_order_catchup_interval_minutes(self):
+        for backend in self:
+            if backend.order_catchup_interval_minutes < 1:
+                raise ValidationError('El intervalo de reconciliación debe ser de al menos 1 minuto.')
 
     def action_test_connection(self):
         """Prueba conexión a la API REST de WooCommerce."""
@@ -195,7 +205,7 @@ class WcBackend(models.Model):
     @api.model
     def _cron_reconcile_orders(self):
         """Reconciliar pedidos Woo modificados desde la última ejecución."""
-        now = fields.Datetime.now()
+        now = self._as_utc_naive(fields.Datetime.now())
         backends = self.search([
             ('state', '=', 'connected'),
             ('enable_order_catchup', '=', True),
@@ -203,8 +213,9 @@ class WcBackend(models.Model):
         ])
         for backend in backends:
             if backend.order_catchup_last_run:
-                delta = now - backend.order_catchup_last_run
-                if delta < timedelta(minutes=max(backend.order_catchup_interval_minutes or 1, 1)):
+                last_run = self._as_utc_naive(backend.order_catchup_last_run)
+                delta = now - last_run
+                if delta < timedelta(minutes=backend.order_catchup_interval_minutes or 1):
                     continue
             backend._reconcile_orders_since_last_run()
 
@@ -367,16 +378,17 @@ class WcBackend(models.Model):
         self.ensure_one()
         if not since_dt:
             return []
-        since_utc = since_dt.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+        since_utc_dt = self._as_utc_naive(since_dt)
+        since_utc = since_utc_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
         page = 1
-        per_page = min(max(self.batch_size or 50, 1), 100)
-        statuses = 'pending,on-hold,processing,completed,cancelled'
+        # Clamp per_page to WooCommerce API bounds [1, 100].
+        per_page = min(max(self.batch_size or _DEFAULT_CATCHUP_BATCH_SIZE, _MIN_CATCHUP_BATCH_SIZE), _MAX_CATCHUP_BATCH_SIZE)
         all_orders = []
         while True:
             params = {
                 'per_page': per_page,
                 'page': page,
-                'status': statuses,
+                'status': _RECONCILE_ORDER_STATUSES,
                 'orderby': 'modified',
                 'order': 'asc',
                 'modified_after': since_utc,
@@ -389,3 +401,11 @@ class WcBackend(models.Model):
                 break
             page += 1
         return all_orders
+
+    @api.model
+    def _as_utc_naive(self, dt):
+        if not dt:
+            return None
+        if dt.tzinfo:
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
