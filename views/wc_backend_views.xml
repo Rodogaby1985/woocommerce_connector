@@ -24,6 +24,8 @@
                                 <field name="wc_consumer_secret" password="True"/>
                                 <field name="enable_order_webhook"/>
                                 <field name="webhook_secret" password="True"/>
+                                <field name="webhook_token" readonly="1"/>
+                                <button name="action_regenerate_webhook_token" type="object" string="Regenerar token webhook" class="btn-secondary"/>
                                 <field name="webhook_push_stock_after_import" invisible="not enable_order_webhook"/>
                                 <field name="webhook_last_received_at" readonly="1"/>
                                 <field name="webhook_last_error" readonly="1"/>
@@ -40,6 +42,7 @@
                                 <field name="sync_images"/>
                                 <field name="batch_size"/>
                                 <field name="rate_limit"/>
+                                <field name="wc_next_call_time" readonly="1"/>
                             </group>
                             <group string="Alertas">
                                 <field name="enable_error_notifications"/>

@@ -7,6 +7,8 @@ from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 _MAX_TRACEBACK_SUMMARY_LINES = 12
+_MAX_JOB_RETRIES = 3
+_MAX_ERROR_MESSAGE_LENGTH = 1000
 
 
 class WcQueueJob(models.Model):
@@ -33,21 +35,49 @@ class WcQueueJob(models.Model):
     retry_count = fields.Integer(string='Reintentos', default=0)
     data = fields.Text(string='Datos JSON')
     date_created = fields.Datetime(string='Fecha creación', default=fields.Datetime.now)
+    next_attempt_at = fields.Datetime(string='Próximo intento', index=True)
+    date_started = fields.Datetime(string='Fecha inicio')
+    date_done = fields.Datetime(string='Fecha fin')
     date_processed = fields.Datetime(string='Fecha procesado')
 
     @api.model
     def _process_pending_jobs(self, limit: int = 50):
-        """Procesa trabajos pendientes según prioridad."""
-        jobs = self.search([('state', '=', 'pending')], limit=limit, order='priority asc, id asc')
+        """Procesa trabajos pendientes con locking SQL para multi-worker."""
+        self.env.cr.execute(
+            """
+                WITH candidate AS (
+                    SELECT id
+                    FROM wc_queue_job
+                    WHERE state IN ('pending', 'error')
+                      AND (next_attempt_at IS NULL OR next_attempt_at <= %s)
+                    ORDER BY priority ASC, id ASC
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT %s
+                )
+                UPDATE wc_queue_job AS job
+                SET state = 'processing',
+                    date_started = %s
+                FROM candidate
+                WHERE job.id = candidate.id
+                RETURNING job.id
+            """,
+            [fields.Datetime.now(), int(limit), fields.Datetime.now()],
+        )
+        job_ids = [row[0] for row in self.env.cr.fetchall()]
+        jobs = self.browse(job_ids)
         for job in jobs:
             job._process_job()
 
     def _process_job(self):
         """Ejecuta un trabajo individual de sincronización."""
         self.ensure_one()
-        if self.state not in ('pending', 'error'):
+        if self.state not in ('pending', 'error', 'processing'):
             return
-        self.write({'state': 'processing'})
+        if self.state != 'processing':
+            self.write({
+                'state': 'processing',
+                'date_started': fields.Datetime.now(),
+            })
         try:
             record = self.env[self.model_name].browse(self.record_id)
             if not record.exists():
@@ -67,17 +97,28 @@ class WcQueueJob(models.Model):
                 else:
                     raise ValueError('No se encontró método de sincronización')
 
-            self.write({'state': 'done', 'error_message': False, 'date_processed': fields.Datetime.now()})
+            now = fields.Datetime.now()
+            self.write({
+                'state': 'done',
+                'error_message': False,
+                'next_attempt_at': False,
+                'date_done': now,
+                'date_processed': now,
+            })
         except Exception as exc:
             _logger.exception('Error procesando trabajo WooCommerce %s', self.id)
             traceback_text = traceback.format_exc()
             retries = self.retry_count + 1
-            state = 'pending' if retries < 3 else 'error'
+            state = 'pending' if retries < _MAX_JOB_RETRIES else 'error'
+            delay_seconds = min(3600, 60 * (2 ** max(retries - 1, 0)))
+            now = fields.Datetime.now()
             self.write({
                 'state': state,
                 'retry_count': retries,
-                'error_message': str(exc),
-                'date_processed': fields.Datetime.now() if state == 'error' else False,
+                'error_message': str(exc)[:_MAX_ERROR_MESSAGE_LENGTH],
+                'next_attempt_at': now + timedelta(seconds=delay_seconds) if state == 'pending' else False,
+                'date_done': now if state == 'error' else False,
+                'date_processed': now if state == 'error' else False,
             })
             if state == 'error':
                 record_for_alert = self.env[self.model_name].browse(self.record_id)
@@ -171,6 +212,8 @@ class WcQueueJob(models.Model):
         threshold = fields.Datetime.now() - timedelta(days=7)
         old_jobs = self.search([
             ('state', 'in', ['done', 'cancelled']),
+            '|',
+            ('date_done', '<', threshold),
             ('date_processed', '<', threshold),
         ])
         old_jobs.unlink()
@@ -178,10 +221,24 @@ class WcQueueJob(models.Model):
     def action_retry(self):
         """Reintenta un trabajo fallido."""
         for job in self:
-            job.write({'state': 'pending', 'error_message': False, 'retry_count': 0})
+            job.write({
+                'state': 'pending',
+                'error_message': False,
+                'retry_count': 0,
+                'next_attempt_at': False,
+                'date_started': False,
+                'date_done': False,
+                'date_processed': False,
+            })
 
     def action_cancel(self):
         """Cancela un trabajo pendiente o en error."""
         for job in self:
             if job.state in ('pending', 'error'):
-                job.write({'state': 'cancelled'})
+                now = fields.Datetime.now()
+                job.write({
+                    'state': 'cancelled',
+                    'next_attempt_at': False,
+                    'date_done': now,
+                    'date_processed': now,
+                })

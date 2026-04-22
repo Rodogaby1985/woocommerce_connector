@@ -9,6 +9,12 @@ Módulo nativo para sincronización bidireccional entre WooCommerce y Odoo, comp
 3. Actualizar lista de Apps.
 4. Instalar **WooCommerce Connector** con un click desde Apps.
 
+## Upgrade (si el módulo ya estaba instalado)
+
+1. Actualizar el módulo (`-u woocommerce_connector`) para crear los nuevos campos y modelos de cola/webhook.
+2. Regenerar el **Token Webhook** en el backend si necesitás rotarlo.
+3. Actualizar la URL de webhook en WooCommerce al formato tokenizado.
+
 ## Configuración inicial
 
 1. Ir a **WooCommerce → Configuración**.
@@ -21,7 +27,9 @@ Módulo nativo para sincronización bidireccional entre WooCommerce y Odoo, comp
 
 Configurar webhooks apuntando a:
 
-- `https://TU-ODOO/wc/webhook`
+- `https://TU-ODOO/wc/webhook/<WEBHOOK_TOKEN>`
+
+`WEBHOOK_TOKEN` se genera automáticamente en **WooCommerce → Configuración** y puede regenerarse desde el backend.
 
 Eventos recomendados:
 
@@ -30,6 +38,7 @@ Eventos recomendados:
 - `customer.created`, `customer.updated`
 
 Si se configura `webhook_secret`, se valida firma HMAC-SHA256 (`X-WC-Webhook-Signature`).
+El endpoint legacy `/wc/webhook` se mantiene solo por compatibilidad temporal y está deprecado.
 
 ## Campos agregados
 
