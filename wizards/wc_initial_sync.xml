@@ -15,6 +15,11 @@
                     <field name="start_page"/>
                     <field name="progress" readonly="1"/>
                 </group>
+                <group string="Stock inicial desde WooCommerce" invisible="not sync_products">
+                    <field name="import_stock"/>
+                    <field name="stock_location_id" invisible="not import_stock" required="import_stock"/>
+                    <field name="overwrite_stock" invisible="not import_stock"/>
+                </group>
                 <group>
                     <field name="total_products" readonly="1"/>
                     <field name="synced_products" readonly="1"/>

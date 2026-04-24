@@ -273,7 +273,7 @@ class ProductTemplate(models.Model):
             len(variations),
             mapped_count,
         )
-        return {'imported': len(variations), 'mapped': mapped_count}
+        return {'imported': len(variations), 'mapped': mapped_count, 'variations': variations}
 
     def action_sync_to_wc(self):
         """Sincroniza manualmente producto hacia WooCommerce."""
