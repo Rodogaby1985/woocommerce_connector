@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_wc_stock_import_form" model="ir.ui.view">
+        <field name="name">wc.stock.import.form</field>
+        <field name="model">wc.stock.import</field>
+        <field name="arch" type="xml">
+            <form string="Importar Stock desde WooCommerce">
+                <group>
+                    <field name="state" readonly="1"/>
+                    <field name="stock_location_id"/>
+                    <field name="overwrite_stock"/>
+                    <field name="start_page"/>
+                    <field name="product_limit"/>
+                    <field name="batch_size"/>
+                </group>
+                <group invisible="state == 'config'">
+                    <field name="products_processed" readonly="1"/>
+                    <field name="variants_adjusted" readonly="1"/>
+                </group>
+                <group>
+                    <field name="log" readonly="1" nolabel="1"/>
+                </group>
+                <footer>
+                    <button name="action_start_import" type="object" string="Importar Stock" class="btn-primary" invisible="state != 'config'"/>
+                    <button string="Cerrar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wc_stock_import" model="ir.actions.act_window">
+        <field name="name">Importar Stock (Woo → Odoo)</field>
+        <field name="res_model">wc.stock.import</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_wc_stock_import_form"/>
+        <field name="target">new</field>
+    </record>
+</odoo>
