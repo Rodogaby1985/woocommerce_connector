@@ -85,8 +85,7 @@ class WcStockImport(models.TransientModel):
             for variation in variations:
                 if not variation.get('manage_stock'):
                     continue
-                wc_qty = variation.get('stock_quantity')
-                wc_qty = float(wc_qty) if wc_qty is not None else 0.0
+                wc_qty = float(variation.get('stock_quantity')) if variation.get('stock_quantity') is not None else 0.0
                 try:
                     variant = self.env['product.product'].search(
                         [('wc_variation_id', '=', variation.get('id'))], limit=1
@@ -109,8 +108,7 @@ class WcStockImport(models.TransientModel):
                     )
         elif product_type != 'variable':
             if wc_product.get('manage_stock'):
-                wc_qty = wc_product.get('stock_quantity')
-                wc_qty = float(wc_qty) if wc_qty is not None else 0.0
+                wc_qty = float(wc_product.get('stock_quantity')) if wc_product.get('stock_quantity') is not None else 0.0
                 try:
                     variant = template.product_variant_id
                     if variant and self._apply_stock_to_variant(variant, location, wc_qty):
