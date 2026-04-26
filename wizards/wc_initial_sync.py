@@ -27,6 +27,14 @@ class WcInitialSync(models.TransientModel):
     synced_variants = fields.Integer(string='Variantes sincronizadas', default=0)
     log = fields.Text(string='Log')
 
+    prepare_stockable = fields.Boolean(
+        string='Preparar productos como Bienes (sin importar stock)',
+        default=True,
+        help='Para cada producto/variación donde Woo tenga manage_stock=True, '
+             'establece el producto en Odoo como Bienes (type=product) y activa '
+             'el rastreo de inventario. No importa cantidades — eso se hace en el '
+             'wizard "Importar Stock desde Woo".',
+    )
     import_stock = fields.Boolean(
         string='Importar stock inicial desde Woo',
         default=False,
@@ -51,6 +59,50 @@ class WcInitialSync(models.TransientModel):
         if warehouse and warehouse.lot_stock_id:
             return warehouse.lot_stock_id
         return self.env['stock.location'].search([('usage', '=', 'internal')], limit=1)
+
+    def _prepare_product_stockable(self, template, wc_product, variations=None):
+        """Para productos con manage_stock=True en Woo, configura en Odoo como
+        Bienes (type='product') para permitir rastreo de inventario.
+
+        Nunca importa cantidades; solo prepara el producto para que luego
+        el wizard de stock pueda crear quants sin errores.
+        Errores individuales se capturan y loguean sin abortar la sync.
+        """
+        log_lines = []
+        product_type = wc_product.get('type')
+
+        def _set_storable(tmpl):
+            try:
+                if tmpl.type != 'product':
+                    tmpl.with_context(wc_no_sync=True).write({'type': 'product'})
+                    return True
+            except Exception as exc:
+                sku = tmpl.default_code or str(tmpl.id)
+                _logger.warning('No se pudo preparar como Bienes el template %s: %s', sku, exc)
+                log_lines.append(
+                    'Advertencia: no se pudo preparar como Bienes el producto %s: %s' % (sku, exc)
+                )
+            return False
+
+        if product_type == 'variable' and variations:
+            for variation in variations:
+                if not variation.get('manage_stock'):
+                    continue
+                if _set_storable(template):
+                    sku = template.default_code or str(template.id)
+                    log_lines.append(
+                        'Preparado como Bienes (manage_stock=True en Woo): %s' % sku
+                    )
+                    break
+        elif product_type != 'variable':
+            if wc_product.get('manage_stock'):
+                if _set_storable(template):
+                    sku = template.default_code or str(template.id)
+                    log_lines.append(
+                        'Preparado como Bienes (manage_stock=True en Woo): %s' % sku
+                    )
+
+        return log_lines
 
     def _apply_stock_to_variant(self, variant, location, target_qty):
         """Aplica cantidad de stock a una variante en la ubicación dada.
@@ -174,21 +226,51 @@ class WcInitialSync(models.TransientModel):
                                     variation_stats.get('mapped', 0),
                                 )
                             })
-                            if self.import_stock:
-                                stock_count, stock_lines = self._import_stock_for_product(
+                            if self.prepare_stockable:
+                                prep_lines = self._prepare_product_stockable(
                                     template, wc_product,
                                     variations=variation_stats.get('variations'),
                                 )
-                                total_stock_imported += stock_count
-                                if stock_lines:
-                                    self.write({'log': (self.log or '') + '\n' + '\n'.join(stock_lines)})
-                        elif self.import_stock:
-                            stock_count, stock_lines = self._import_stock_for_product(
-                                template, wc_product,
-                            )
-                            total_stock_imported += stock_count
-                            if stock_lines:
-                                self.write({'log': (self.log or '') + '\n' + '\n'.join(stock_lines)})
+                                if prep_lines:
+                                    self.write({'log': (self.log or '') + '\n' + '\n'.join(prep_lines)})
+                            if self.import_stock:
+                                try:
+                                    stock_count, stock_lines = self._import_stock_for_product(
+                                        template, wc_product,
+                                        variations=variation_stats.get('variations'),
+                                    )
+                                    total_stock_imported += stock_count
+                                    if stock_lines:
+                                        self.write({'log': (self.log or '') + '\n' + '\n'.join(stock_lines)})
+                                except Exception as stock_exc:
+                                    _logger.warning(
+                                        'Error importando stock para %s (Woo ID %s): %s',
+                                        template.display_name, template.wc_id, stock_exc,
+                                    )
+                                    self.write({'log': (self.log or '') + '\nAdvertencia stock %s: %s' % (
+                                        template.display_name, stock_exc,
+                                    )})
+                        else:
+                            if self.prepare_stockable:
+                                prep_lines = self._prepare_product_stockable(template, wc_product)
+                                if prep_lines:
+                                    self.write({'log': (self.log or '') + '\n' + '\n'.join(prep_lines)})
+                            if self.import_stock:
+                                try:
+                                    stock_count, stock_lines = self._import_stock_for_product(
+                                        template, wc_product,
+                                    )
+                                    total_stock_imported += stock_count
+                                    if stock_lines:
+                                        self.write({'log': (self.log or '') + '\n' + '\n'.join(stock_lines)})
+                                except Exception as stock_exc:
+                                    _logger.warning(
+                                        'Error importando stock para %s: %s',
+                                        template.display_name, stock_exc,
+                                    )
+                                    self.write({'log': (self.log or '') + '\nAdvertencia stock %s: %s' % (
+                                        template.display_name, stock_exc,
+                                    )})
                         if product_limit and processed >= product_limit:
                             break
                     if product_limit and processed >= product_limit:
@@ -196,8 +278,10 @@ class WcInitialSync(models.TransientModel):
                     page += 1
 
                 stock_summary = ''
+                if self.prepare_stockable:
+                    stock_summary = 'Productos preparados como Bienes (manage_stock=True). '
                 if self.import_stock:
-                    stock_summary = 'Stock inicial importado: %s variantes/productos ajustados.' % total_stock_imported
+                    stock_summary += 'Stock inicial importado: %s variantes/productos ajustados.' % total_stock_imported
                     if self.stock_location_id:
                         stock_summary += ' Ubicación: %s.' % (
                             self.stock_location_id.complete_name or self.stock_location_id.name
