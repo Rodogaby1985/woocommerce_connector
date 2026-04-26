@@ -23,6 +23,7 @@
         'wizards/wc_initial_sync.xml',
         'wizards/wc_price_update.xml',
         'wizards/wc_stock_import.xml',
+        'wizards/wc_reset_sync.xml',
         'views/menu.xml',
     ],
     'demo': [

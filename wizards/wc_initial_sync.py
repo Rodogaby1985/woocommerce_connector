@@ -45,9 +45,14 @@ class WcInitialSync(models.TransientModel):
         domain=[('usage', '=', 'internal')],
         default=lambda self: self._default_stock_location(),
     )
-    overwrite_stock = fields.Boolean(
-        string='Pisar stock existente (Woo es fuente de verdad)',
+    relink_by_sku = fields.Boolean(
+        string='Relinkear por SKU si no hay ID Woo',
         default=True,
+        help=(
+            'Cuando está activo, si no se encuentra un producto por su ID de Woo, '
+            'se busca uno existente con el mismo SKU (referencia interna) antes de crear uno nuevo. '
+            'Útil para reiniciar la sincronización sin duplicar productos.'
+        ),
     )
 
     @api.model
@@ -126,54 +131,48 @@ class WcInitialSync(models.TransientModel):
         )
         return True
 
-    def _import_stock_for_product(self, template, wc_product, variations=None):
-        """Importa stock desde WooCommerce para un producto y sus variantes.
+        if not template:
+            template = self.env['product.template'].create(
+                {'name': wc_product.get('name') or 'Producto WooCommerce'}
+            )
+        return template
 
-        Retorna (count, log_lines) donde count es el número de variantes ajustadas.
-        Solo actúa cuando manage_stock=True en Woo para cada producto/variación.
-        Usa contexto wc_no_sync=True para evitar encolar jobs de exportación.
+    def _prepare_stockable_for_product(self, template, wc_product, variations=None):
+        """Prepara el producto como almacenable si manage_stock está activo en Woo.
+
+        Solo cambia el tipo a 'product' (almacenable); no importa cantidades.
+        Usa contexto wc_no_sync=True para evitar loops de exportación.
+        Captura excepciones por producto para no abortar la sincronización completa.
+        Retorna True si se realizó algún cambio.
         """
-        location = self.stock_location_id
-        if not location:
-            return 0, []
-
-        stock_count = 0
-        log_lines = []
-        location_name = location.complete_name or location.name
+        needs_stockable = False
         product_type = wc_product.get('type')
 
         if product_type == 'variable' and variations:
-            for variation in variations:
-                if not variation.get('manage_stock'):
-                    continue
-                wc_qty = variation.get('stock_quantity') if variation.get('stock_quantity') is not None else 0
-                variant = self.env['product.product'].search(
-                    [('wc_variation_id', '=', variation.get('id'))], limit=1
-                )
-                if not variant:
-                    continue
-                if self._apply_stock_to_variant(variant, location, wc_qty):
-                    sku = variant.default_code or str(variant.id)
-                    log_lines.append(
-                        'Stock importado: %s: %s unidades en %s' % (sku, int(wc_qty), location_name)
-                    )
-                    stock_count += 1
+            needs_stockable = any(v.get('manage_stock') for v in variations)
         elif product_type != 'variable':
-            if wc_product.get('manage_stock'):
-                wc_qty = wc_product.get('stock_quantity') if wc_product.get('stock_quantity') is not None else 0
-                variant = template.product_variant_id
-                if variant and self._apply_stock_to_variant(variant, location, wc_qty):
-                    sku = (
-                        variant.default_code
-                        or template.default_code
-                        or str(variant.id)
-                    )
-                    log_lines.append(
-                        'Stock importado: %s: %s unidades en %s' % (sku, int(wc_qty), location_name)
-                    )
-                    stock_count += 1
+            needs_stockable = bool(wc_product.get('manage_stock'))
 
-        return stock_count, log_lines
+        if not needs_stockable:
+            return False
+
+        try:
+            if template.type != 'product':
+                template.with_context(wc_no_sync=True).write({'type': 'product'})
+                _logger.info(
+                    'Producto %s (Woo ID %s) configurado como almacenable.',
+                    template.display_name,
+                    template.wc_id,
+                )
+            return True
+        except Exception as exc:
+            _logger.warning(
+                'Error preparando stockable para producto %s (Woo ID %s): %s',
+                template.display_name,
+                wc_product.get('id'),
+                exc,
+            )
+            return False
 
     def action_start_sync(self):
         """Arranca el proceso inicial y procesa el primer lote."""
@@ -196,7 +195,7 @@ class WcInitialSync(models.TransientModel):
                 total_variants = 0
                 synced_variants = 0
                 variable_products = 0
-                total_stock_imported = 0
+                stockable_prepared = 0
                 product_limit = self.product_limit if self.product_limit > 0 else None
                 self.write({'log': (self.log or '') + '\nIniciando sync de productos desde página %s%s.' % (
                     page,
@@ -208,22 +207,41 @@ class WcInitialSync(models.TransientModel):
                         break
                     self.write({'log': (self.log or '') + '\nProcesando página %s (%s productos)...' % (page, len(products))})
                     for wc_product in products:
-                        template = self.env['product.template'].search([('wc_id', '=', wc_product.get('id'))], limit=1)
-                        if not template:
-                            template = self.env['product.template'].create({'name': wc_product.get('name') or 'Producto WooCommerce'})
-                        template._process_wc_data(wc_product)
-                        processed += 1
-                        if wc_product.get('type') == 'variable':
-                            variable_products += 1
-                            variation_stats = template._sync_variable_product_from_wc(wc_product)
-                            total_variants += variation_stats.get('imported', 0)
-                            synced_variants += variation_stats.get('mapped', 0)
+                        try:
+                            template = self._find_or_create_template(wc_product)
+                            template._process_wc_data(wc_product)
+                            processed += 1
+                            variations_data = None
+                            if wc_product.get('type') == 'variable':
+                                variable_products += 1
+                                variation_stats = template._sync_variable_product_from_wc(wc_product)
+                                total_variants += variation_stats.get('imported', 0)
+                                synced_variants += variation_stats.get('mapped', 0)
+                                variations_data = variation_stats.get('variations')
+                                self.write({
+                                    'log': (self.log or '') + '\nProducto variable %s (Woo ID %s): %s variaciones importadas, %s mapeadas.' % (
+                                        template.display_name,
+                                        template.wc_id,
+                                        variation_stats.get('imported', 0),
+                                        variation_stats.get('mapped', 0),
+                                    )
+                                })
+                            if self.prepare_stockable:
+                                if self._prepare_stockable_for_product(
+                                    template, wc_product, variations=variations_data
+                                ):
+                                    stockable_prepared += 1
+                        except Exception as exc:
+                            _logger.exception(
+                                'Error procesando producto Woo ID %s: %s',
+                                wc_product.get('id'),
+                                exc,
+                            )
                             self.write({
-                                'log': (self.log or '') + '\nProducto variable %s (Woo ID %s): %s variaciones importadas, %s mapeadas.' % (
-                                    template.display_name,
-                                    template.wc_id,
-                                    variation_stats.get('imported', 0),
-                                    variation_stats.get('mapped', 0),
+                                'log': (self.log or '') + '\nError en producto Woo ID %s (%s): %s' % (
+                                    wc_product.get('id'),
+                                    wc_product.get('name', ''),
+                                    exc,
                                 )
                             })
                             if self.prepare_stockable:
@@ -296,12 +314,13 @@ class WcInitialSync(models.TransientModel):
                                              '%s productos importados (%s variables). '
                                              '%s variaciones importadas, %s mapeadas. '
                                              '%s'
+                                             'Para importar stock use el wizard "Importar Stock desde Woo". '
                                              'Próxima ejecución desde página: %s.' % (
                                                  processed,
                                                  variable_products,
                                                  total_variants,
                                                  synced_variants,
-                                                 stock_summary,
+                                                 stockable_summary,
                                                  page,
                                              ),
                 })
