@@ -15,11 +15,9 @@
                     <field name="start_page"/>
                     <field name="progress" readonly="1"/>
                 </group>
-                <group string="Stock inicial desde WooCommerce" invisible="not sync_products">
+                <group string="Opciones de productos" invisible="not sync_products">
                     <field name="prepare_stockable"/>
-                    <field name="import_stock"/>
-                    <field name="stock_location_id" invisible="not import_stock" required="import_stock"/>
-                    <field name="overwrite_stock" invisible="not import_stock"/>
+                    <field name="relink_by_sku"/>
                 </group>
                 <group>
                     <field name="total_products" readonly="1"/>
