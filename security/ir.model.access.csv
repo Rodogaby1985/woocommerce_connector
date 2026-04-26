@@ -10,3 +10,4 @@ access_wc_initial_sync_manager,wc.initial.sync manager,model_wc_initial_sync,woo
 access_wc_price_update_manager,wc.price.update manager,model_wc_price_update,woocommerce_connector.group_wc_manager,1,1,1,1
 access_wc_stock_import_wizard_manager,wc.stock.import.wizard manager,model_wc_stock_import_wizard,woocommerce_connector.group_wc_manager,1,1,1,1
 access_wc_reset_sync_manager,wc.reset.sync manager,model_wc_reset_sync,woocommerce_connector.group_wc_manager,1,1,1,1
+access_wc_stock_import_manager,wc.stock.import manager,model_wc_stock_import,woocommerce_connector.group_wc_manager,1,1,1,1
