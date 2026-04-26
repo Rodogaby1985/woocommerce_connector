@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_wc_reset_sync_form" model="ir.ui.view">
+        <field name="name">wc.reset.sync.form</field>
+        <field name="model">wc.reset.sync</field>
+        <field name="arch" type="xml">
+            <form string="Reiniciar Sincronización WooCommerce">
+                <group invisible="state == 'done'">
+                    <field name="scope"/>
+                    <field name="confirm"/>
+                </group>
+                <group string="Resultado" invisible="not log">
+                    <field name="log" readonly="1" nolabel="1"/>
+                </group>
+                <footer>
+                    <button name="action_reset" type="object" string="Reiniciar Sync" class="btn-danger" invisible="state != 'confirm'"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel" invisible="state == 'done'"/>
+                    <button string="Cerrar" class="btn-secondary" special="cancel" invisible="state != 'done'"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wc_reset_sync" model="ir.actions.act_window">
+        <field name="name">Reiniciar Sincronización Woo</field>
+        <field name="res_model">wc.reset.sync</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_wc_reset_sync_form"/>
+        <field name="target">new</field>
+    </record>
+</odoo>

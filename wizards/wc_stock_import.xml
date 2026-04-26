@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_wc_stock_import_wizard_form" model="ir.ui.view">
+        <field name="name">wc.stock.import.wizard.form</field>
+        <field name="model">wc.stock.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Importar Stock desde WooCommerce">
+                <group>
+                    <field name="backend_id"/>
+                    <field name="stock_location_id"/>
+                    <field name="overwrite_stock"/>
+                    <field name="start_page"/>
+                    <field name="product_limit"/>
+                </group>
+                <group string="Resultado" invisible="not log">
+                    <field name="state" readonly="1"/>
+                    <field name="total_adjusted" readonly="1"/>
+                    <field name="total_skipped" readonly="1"/>
+                    <field name="log" readonly="1" nolabel="1"/>
+                </group>
+                <footer>
+                    <button name="action_start_import" type="object" string="Importar Stock" class="btn-primary" invisible="state != 'config'"/>
+                    <button string="Cerrar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wc_stock_import_wizard" model="ir.actions.act_window">
+        <field name="name">Importar Stock desde Woo</field>
+        <field name="res_model">wc.stock.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_wc_stock_import_wizard_form"/>
+        <field name="target">new</field>
+    </record>
+</odoo>

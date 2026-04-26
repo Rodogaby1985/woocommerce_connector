@@ -15,13 +15,33 @@ Módulo nativo para sincronización bidireccional entre WooCommerce y Odoo, comp
 2. Regenerar el **Token Webhook** en el backend si necesitás rotarlo.
 3. Actualizar la URL de webhook en WooCommerce al formato tokenizado.
 
-## Configuración inicial
+## Sincronización inicial en dos pasos
 
-1. Ir a **WooCommerce → Configuración**.
-2. Completar URL de tienda, Consumer Key y Consumer Secret.
-3. Guardar y usar **Probar Conexión**.
-4. Configurar opciones de sync (stock, precios, pedidos, clientes, imágenes, batch size y rate limit).
-5. Ejecutar **Sync Inicial** desde el botón o menú.
+Para evitar fallas por productos sin gestión de stock, se recomienda el siguiente flujo:
+
+### Paso 1 — Sync Inicial (sin importar stock)
+
+1. Ir a **WooCommerce → Sync Inicial**.
+2. Habilitar **"Preparar productos como almacenables"** (activo por defecto): los productos con `manage_stock=true` en Woo se configuran como almacenables (`type=product`) en Odoo automáticamente.
+3. Habilitar **"Relinkear por SKU"** si ya existen productos en Odoo con el mismo SKU: evita crear duplicados.
+4. Iniciar la sincronización. Los catálogos, atributos y variaciones se importan; **no se importan cantidades de stock**.
+
+### Paso 2 — Importar Stock
+
+1. Ir a **WooCommerce → Importar Stock desde Woo**.
+2. Seleccionar backend, ubicación de destino y si se debe pisar el stock existente.
+3. Iniciar la importación. Se aplican las cantidades de Woo solo para productos con `manage_stock=true` que ya estén mapeados en Odoo.
+
+### Reiniciar sincronización ("Start over")
+
+Si se necesita empezar de cero sin duplicar productos:
+
+1. Ir a **WooCommerce → Reiniciar Sincronización**.
+2. Elegir el alcance (todos los vinculados o solo los que tienen SKU).
+3. Confirmar. Se limpian los campos `wc_id`, `wc_variation_id` y fechas de sync.
+4. Ejecutar el **Sync Inicial** nuevamente con **"Relinkear por SKU"** activo para vincular por referencia interna sin crear duplicados.
+
+
 
 ## Webhooks en WooCommerce
 
