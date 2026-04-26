@@ -6,8 +6,6 @@
     <menuitem id="menu_wc_queue" parent="menu_wc_root" name="Cola de trabajos" action="action_wc_queue_job_list" sequence="3" groups="woocommerce_connector.group_wc_manager"/>
     <menuitem id="menu_wc_sync_wizard" parent="menu_wc_root" name="Sync Inicial" action="action_wc_initial_sync" sequence="4" groups="woocommerce_connector.group_wc_manager"/>
     <menuitem id="menu_wc_price_update" parent="menu_wc_root" name="Actualización de precios" action="action_wc_price_update" sequence="5" groups="woocommerce_connector.group_wc_manager"/>
-    <menuitem id="menu_wc_stock_import" parent="menu_wc_root" name="Importar Stock desde Woo" action="action_wc_stock_import_wizard" sequence="6" groups="woocommerce_connector.group_wc_manager"/>
+    <menuitem id="menu_wc_stock_import" parent="menu_wc_root" name="Importar Stock desde Woo" action="action_wc_stock_import" sequence="6" groups="woocommerce_connector.group_wc_manager"/>
     <menuitem id="menu_wc_reset_sync" parent="menu_wc_root" name="Reiniciar Sincronización" action="action_wc_reset_sync" sequence="7" groups="woocommerce_connector.group_wc_manager"/>
-    <menuitem id="menu_wc_stock_import" parent="menu_wc_root" name="Importar Stock (Woo → Odoo)" action="action_wc_stock_import" sequence="5" groups="woocommerce_connector.group_wc_manager"/>
-    <menuitem id="menu_wc_price_update" parent="menu_wc_root" name="Actualización de precios" action="action_wc_price_update" sequence="6" groups="woocommerce_connector.group_wc_manager"/>
 </odoo>
