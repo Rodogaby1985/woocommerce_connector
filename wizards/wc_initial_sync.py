@@ -31,8 +31,8 @@ class WcInitialSync(models.TransientModel):
         string='Preparar productos como Bienes (sin importar stock)',
         default=True,
         help='Para cada producto/variación donde Woo tenga manage_stock=True, '
-             'establece el producto en Odoo como Bienes (type=product) y activa '
-             'el rastreo de inventario. No importa cantidades — eso se hace en el '
+             'establece el producto en Odoo como Bienes (type=\'consu\') para '
+             'permitir rastreo de inventario. No importa cantidades — eso se hace en el '
              'wizard "Importar Stock desde Woo".',
     )
     relink_by_sku = fields.Boolean(
@@ -67,54 +67,10 @@ class WcInitialSync(models.TransientModel):
             )
         return template
 
-    def _prepare_product_stockable(self, template, wc_product, variations=None):
-        """Para productos con manage_stock=True en Woo, configura en Odoo como
-        Bienes (type='product') para permitir rastreo de inventario.
-
-        Nunca importa cantidades; solo prepara el producto para que luego
-        el wizard de stock pueda crear quants sin errores.
-        Errores individuales se capturan y loguean sin abortar la sync.
-        """
-        log_lines = []
-        product_type = wc_product.get('type')
-
-        def _set_storable(tmpl):
-            try:
-                if tmpl.type != 'product':
-                    tmpl.with_context(wc_no_sync=True).write({'type': 'product'})
-                    return True
-            except Exception as exc:
-                sku = tmpl.default_code or str(tmpl.id)
-                _logger.warning('No se pudo preparar como Bienes el template %s: %s', sku, exc)
-                log_lines.append(
-                    'Advertencia: no se pudo preparar como Bienes el producto %s: %s' % (sku, exc)
-                )
-            return False
-
-        if product_type == 'variable' and variations:
-            for variation in variations:
-                if not variation.get('manage_stock'):
-                    continue
-                if _set_storable(template):
-                    sku = template.default_code or str(template.id)
-                    log_lines.append(
-                        'Preparado como Bienes (manage_stock=True en Woo): %s' % sku
-                    )
-                    break
-        elif product_type != 'variable':
-            if wc_product.get('manage_stock'):
-                if _set_storable(template):
-                    sku = template.default_code or str(template.id)
-                    log_lines.append(
-                        'Preparado como Bienes (manage_stock=True en Woo): %s' % sku
-                    )
-
-        return log_lines
-
     def _prepare_stockable_for_product(self, template, wc_product, variations=None):
-        """Prepara el producto como almacenable si manage_stock está activo en Woo.
+        """Prepara el producto como Bienes (consu) si manage_stock está activo en Woo.
 
-        Solo cambia el tipo a 'product' (almacenable); no importa cantidades.
+        Solo cambia el tipo a 'consu' (Bienes/Goods); no importa cantidades.
         Usa contexto wc_no_sync=True para evitar loops de exportación.
         Captura excepciones por producto para no abortar la sincronización completa.
         Retorna True si se realizó algún cambio.
@@ -131,10 +87,10 @@ class WcInitialSync(models.TransientModel):
             return False
 
         try:
-            if template.type != 'product':
-                template.with_context(wc_no_sync=True).write({'type': 'product'})
+            if template.type != 'consu':
+                template.with_context(wc_no_sync=True).write({'type': 'consu'})
                 _logger.info(
-                    'Producto %s (Woo ID %s) configurado como almacenable.',
+                    'Producto %s (Woo ID %s) configurado como Bienes (consu).',
                     template.display_name,
                     template.wc_id,
                 )
